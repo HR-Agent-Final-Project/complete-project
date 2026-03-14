@@ -1,0 +1,25 @@
+# Virtual environment
+.venv/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Environment secrets
+.env
+
+# Firebase service account key — NEVER commit this file
+firebase-credentials.json
+
+# Database & AI data
+chroma_db/
+uploads/
+
+# IDE
+.vscode/
+.idea/
+
+# uv — DO commit uv.lock and pyproject.toml
+# DO NOT add them here

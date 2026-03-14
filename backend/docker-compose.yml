@@ -1,0 +1,52 @@
+services:
+
+  # ── ChromaDB (vector store for HR policy RAG) ─────────────────────────────
+  chromadb:
+    image: chromadb/chroma:latest
+    container_name: aihr_chromadb
+    restart: unless-stopped
+    environment:
+      CHROMA_SERVER_HOST: "0.0.0.0"
+      CHROMA_SERVER_HTTP_PORT: 8000
+      IS_PERSISTENT: "TRUE"
+      PERSIST_DIRECTORY: /chroma/data
+      ANONYMIZED_TELEMETRY: "FALSE"
+    ports:
+      - "8100:8000"
+    volumes:
+      - chroma_data:/chroma/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v2/heartbeat"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Redis (LangGraph MemorySaver state + caching) ─────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: aihr_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── pgAdmin (optional — browse your Neon DB visually) ─────────────────────
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: aihr_pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@admin.com}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:?PGADMIN_PASSWORD is required}
+    ports:
+      - "5050:80"
+
+volumes:
+  chroma_data:
+  redis_data:
