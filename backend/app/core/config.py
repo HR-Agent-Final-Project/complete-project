@@ -45,6 +45,8 @@ class Settings(BaseSettings):
         "http://localhost:3000",
         "http://localhost:3001",
         "http://localhost:5173",
+        "https://stately-snickerdoodle-ed0f15.netlify.app",
+        "https://prismatic-taiyaki-af2173.netlify.app",
     ]
     RATE_LIMIT_PER_MINUTE: int = 60
     LOGIN_RATE_LIMIT: int = 5

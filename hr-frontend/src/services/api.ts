@@ -9,7 +9,7 @@ import {
   ReportData, HRDashboardStats, EmployeeDashboardStats, ManagementDashboardStats,
 } from '../types';
 
-const BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8080/api';
+const BASE_URL = process.env.REACT_APP_API_URL || 'https://8l8jz23p-8080.asse.devtunnels.ms/api';
 
 export const apiClient = axios.create({
   baseURL: BASE_URL,
