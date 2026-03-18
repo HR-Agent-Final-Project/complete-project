@@ -42,7 +42,7 @@ from app.core.config import settings
 from app.core.security import get_current_employee
 from app.models.employee import Employee
 from app.models.chat import ChatSession, ChatMessage
-from app.models.leave import LeaveBalance
+from app.models.leave import LeaveBalance, LeaveRequest, LeaveType, LeaveStatus
 from app.models.attendance import Attendance
 from app.models.performance import PerformanceReview
 from app.schemas.chat import (
@@ -264,10 +264,253 @@ def _build_agent(employee_id: int, db: Session):
         except Exception as e:
             return json.dumps({"error": str(e)})
 
+    # ── Tool 6: Apply Leave ─────────────────────────────────────────────────
+
+    @tool
+    def apply_leave_for_me(
+        leave_type_code: str,
+        start_date: str,
+        end_date: str,
+        reason: str,
+        is_half_day: bool = False,
+    ) -> str:
+        """
+        Apply for leave on behalf of the current employee. This CREATES a real
+        leave request in the database and triggers the AI review engine.
+
+        Parameters:
+          leave_type_code: The leave type code — one of AL (Annual), SL (Sick),
+                          CL (Casual), ML (Maternity), PL (Paternity), NPL (No Pay)
+          start_date: Start date in ISO format YYYY-MM-DD (e.g. "2026-04-01")
+          end_date:   End date in ISO format YYYY-MM-DD (e.g. "2026-04-03")
+          reason:     The reason for the leave request
+          is_half_day: True if applying for half-day leave (default False)
+
+        Use this when the employee says things like:
+          "I want to take annual leave from April 1 to April 3"
+          "Apply sick leave for tomorrow, I'm not feeling well"
+          "I need casual leave on March 20 for a personal matter"
+
+        IMPORTANT: Always confirm the details with the employee BEFORE calling
+        this tool. Ask them to confirm the leave type, dates, and reason.
+        """
+        try:
+            from datetime import date as date_cls, timedelta
+
+            # Validate leave type
+            leave_type = db.query(LeaveType).filter(
+                LeaveType.code == leave_type_code.upper(),
+                LeaveType.is_active == True,
+            ).first()
+            if not leave_type:
+                return json.dumps({
+                    "success": False,
+                    "error": f"Invalid leave type code '{leave_type_code}'. "
+                             f"Valid codes: AL, SL, CL, ML, PL, NPL",
+                })
+
+            # Parse and validate dates
+            try:
+                s_date = date_cls.fromisoformat(start_date)
+                e_date = date_cls.fromisoformat(end_date)
+            except ValueError:
+                return json.dumps({
+                    "success": False,
+                    "error": "Invalid date format. Use YYYY-MM-DD.",
+                })
+
+            if s_date > e_date:
+                return json.dumps({
+                    "success": False,
+                    "error": "Start date must be before or equal to end date.",
+                })
+            if s_date < date_cls.today():
+                return json.dumps({
+                    "success": False,
+                    "error": "Cannot apply for past dates.",
+                })
+
+            # Count working days (exclude Sundays)
+            if is_half_day:
+                days = 0.5
+            else:
+                days = 0.0
+                current = s_date
+                while current <= e_date:
+                    if current.weekday() != 6:  # Exclude Sundays
+                        days += 1.0
+                    current += timedelta(days=1)
+
+            # Check for overlapping leave
+            overlap = db.query(LeaveRequest).filter(
+                LeaveRequest.employee_id == employee_id,
+                LeaveRequest.status.in_(["pending", "approved", "escalated"]),
+                LeaveRequest.start_date <= e_date,
+                LeaveRequest.end_date >= s_date,
+            ).first()
+            if overlap:
+                return json.dumps({
+                    "success": False,
+                    "error": f"You already have a {overlap.status} leave from "
+                             f"{overlap.start_date} to {overlap.end_date}. "
+                             f"Cancel it first or choose different dates.",
+                })
+
+            # Create the leave request
+            leave_request = LeaveRequest(
+                employee_id=employee_id,
+                leave_type_id=leave_type.id,
+                start_date=s_date,
+                end_date=e_date,
+                total_days=days,
+                days_requested=days,
+                reason=reason,
+                is_half_day=is_half_day,
+                status=LeaveStatus.PENDING,
+            )
+            db.add(leave_request)
+            db.commit()
+            db.refresh(leave_request)
+
+            # Run AI review engine (same logic as POST /api/leave/apply)
+            from app.models.employee import Employee as EmpModel
+            employee = db.query(EmpModel).filter(EmpModel.id == employee_id).first()
+            from app.api.leave import _run_ai_review
+            ai_result = _run_ai_review(db, leave_request, employee, leave_type)
+
+            return json.dumps({
+                "success": True,
+                "leave_id": leave_request.id,
+                "leave_type": leave_type.name,
+                "start_date": str(s_date),
+                "end_date": str(e_date),
+                "days": days,
+                "is_half_day": is_half_day,
+                "ai_decision": ai_result["decision"],
+                "ai_reasoning": ai_result["reasoning"],
+                "status": leave_request.status.value if hasattr(leave_request.status, 'value') else str(leave_request.status),
+                "next_step": ai_result.get("next_step", ""),
+            })
+
+        except Exception as e:
+            logger.error("[Chat] apply_leave_for_me error: %s", e)
+            return json.dumps({"success": False, "error": str(e)})
+
+    # ── Tool 7: Cancel Leave ─────────────────────────────────────────────────
+
+    @tool
+    def cancel_my_leave(leave_id: int) -> str:
+        """
+        Cancel a pending or escalated leave request for the current employee.
+
+        Parameters:
+          leave_id: The ID of the leave request to cancel
+
+        Use this when the employee says:
+          "Cancel my leave request"
+          "I want to cancel leave #15"
+          "Never mind, cancel that leave I just applied for"
+
+        Only pending or escalated leaves can be cancelled.
+        """
+        try:
+            leave = db.query(LeaveRequest).filter(
+                LeaveRequest.id == leave_id,
+                LeaveRequest.employee_id == employee_id,
+            ).first()
+
+            if not leave:
+                return json.dumps({
+                    "success": False,
+                    "error": f"Leave request #{leave_id} not found or doesn't belong to you.",
+                })
+
+            status_val = leave.status.value if hasattr(leave.status, 'value') else str(leave.status)
+            if status_val not in ("pending", "escalated"):
+                return json.dumps({
+                    "success": False,
+                    "error": f"Cannot cancel a leave that is '{status_val}'. "
+                             f"Only pending or escalated leaves can be cancelled. "
+                             f"Contact HR for approved leaves.",
+                })
+
+            leave.status = LeaveStatus.CANCELLED
+            leave.hr_notes = "Cancelled by employee via AI Chat Agent."
+            db.commit()
+
+            return json.dumps({
+                "success": True,
+                "leave_id": leave_id,
+                "message": f"Leave request #{leave_id} has been cancelled successfully.",
+                "leave_type": leave.leave_type.name if leave.leave_type else "Unknown",
+                "dates": f"{leave.start_date} to {leave.end_date}",
+            })
+
+        except Exception as e:
+            logger.error("[Chat] cancel_my_leave error: %s", e)
+            return json.dumps({"success": False, "error": str(e)})
+
+    # ── Tool 8: List My Leave Requests ────────────────────────────────────────
+
+    @tool
+    def get_my_leave_requests(status_filter: str = "") -> str:
+        """
+        Fetch the current employee's recent leave requests with their status.
+
+        Parameters:
+          status_filter: Optional filter — "pending", "approved", "rejected",
+                        "escalated", "cancelled", or "" for all
+
+        Use this when the employee asks:
+          "What are my recent leave requests?"
+          "Do I have any pending leaves?"
+          "Show me my leave history"
+          "What's the status of my leave?"
+        """
+        try:
+            q = db.query(LeaveRequest).filter(
+                LeaveRequest.employee_id == employee_id,
+            )
+            if status_filter and status_filter.strip():
+                q = q.filter(LeaveRequest.status == status_filter.strip().lower())
+
+            leaves = q.order_by(LeaveRequest.created_at.desc()).limit(10).all()
+
+            if not leaves:
+                return json.dumps({
+                    "found": False,
+                    "message": "No leave requests found"
+                              + (f" with status '{status_filter}'." if status_filter else "."),
+                })
+
+            return json.dumps({
+                "found": True,
+                "total": len(leaves),
+                "requests": [
+                    {
+                        "id": l.id,
+                        "leave_type": l.leave_type.name if l.leave_type else "Unknown",
+                        "code": l.leave_type.code if l.leave_type else "",
+                        "start_date": str(l.start_date),
+                        "end_date": str(l.end_date),
+                        "days": l.days_requested or l.total_days,
+                        "reason": l.reason,
+                        "status": l.status.value if hasattr(l.status, 'value') else str(l.status),
+                        "ai_decision": l.ai_decision,
+                        "created_at": str(l.created_at)[:10] if l.created_at else None,
+                    }
+                    for l in leaves
+                ],
+            })
+
+        except Exception as e:
+            logger.error("[Chat] get_my_leave_requests error: %s", e)
+            return json.dumps({"found": False, "error": str(e)})
+
     # ── System Prompt ────────────────────────────────────────────────────────
 
     SYSTEM_PROMPT = """You are a friendly, knowledgeable HR assistant for a company in Sri Lanka.
-Your role is to help employees with HR-related questions accurately and professionally.
+Your role is to help employees with HR-related questions AND take actions on their behalf.
 
 How to respond:
 - Use your tools to look up accurate policy information and personal data
@@ -280,12 +523,27 @@ How to respond:
 You can answer questions like:
   "How many annual leave days do I have left?"
   "What is the overtime rate on weekends?"
-  "Can I carry over unused leave to next year?"
   "What is my attendance percentage this month?"
-  "What happens if I'm late more than 5 times?"
-  "Am I eligible for a performance bonus?"
-  "What is the dress code policy?"
-  "How do I apply for maternity leave?"
+
+You can also TAKE ACTIONS directly:
+  ✅ Apply for leave: "I want to take annual leave from April 1 to April 3 for a family trip"
+  ✅ Cancel leave: "Cancel my pending leave request"
+  ✅ Check leave status: "What's the status of my leave requests?"
+
+IMPORTANT RULES for applying leave:
+1. Before applying, ALWAYS confirm the details with the employee:
+   - Leave type (AL/SL/CL/ML/PL/NPL)
+   - Start date and end date
+   - Reason for leave
+2. If the employee doesn't specify all details, ASK them before proceeding
+3. Use get_my_leave_balances first to check if they have enough days
+4. After applying, clearly communicate the AI decision (approved/rejected/escalated)
+5. Leave type codes: AL=Annual Leave, SL=Sick Leave, CL=Casual Leave,
+   ML=Maternity Leave, PL=Paternity Leave, NPL=No Pay Leave
+
+For cancellation:
+1. Use get_my_leave_requests to find the leave ID first
+2. Only pending or escalated leaves can be cancelled
 """
 
     tools = [
@@ -294,6 +552,9 @@ You can answer questions like:
         get_my_leave_balances,
         get_my_attendance,
         get_my_performance,
+        apply_leave_for_me,
+        cancel_my_leave,
+        get_my_leave_requests,
     ]
     return create_react_agent(llm, tools, prompt=SYSTEM_PROMPT)
 

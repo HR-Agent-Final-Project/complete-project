@@ -334,20 +334,6 @@ export const Login = () => {
               <FeatureChip icon={<BarChart3 size={12} />} label="Analytics" />
               <FeatureChip icon={<Clock size={12} />} label="Attendance" />
             </div>
-
-            {/* Trust indicator */}
-            <div className="flex items-center justify-center gap-3 mt-5">
-              <div className="flex -space-x-2">
-                {['/group.jpg', '/talk.jpg', '/meatting.jpg'].map((src, i) => (
-                  <div key={i} className="w-7 h-7 rounded-full border-2 border-white overflow-hidden shadow-sm">
-                    <img src={src} alt="" className="w-full h-full object-cover" />
-                  </div>
-                ))}
-              </div>
-              <p className="font-mono text-[10px] text-neo-black/40">
-                Trusted by <span className="font-bold text-neo-black/60">500+</span> employees
-              </p>
-            </div>
           </div>
         </div>
       </div>
