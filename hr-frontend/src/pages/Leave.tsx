@@ -53,15 +53,33 @@ const EmployeeLeave = () => {
   const [form, setForm] = useState(INITIAL_FORM);
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [cancelling, setCancelling] = useState<number | null>(null);
 
-  useEffect(() => {
+  const loadData = () => {
+    setLoading(true);
     Promise.allSettled([leaveApi.myRequests(), leaveApi.balance()])
       .then(([r, b]) => {
         if (r.status === 'fulfilled') setRequests(r.value);
         if (b.status === 'fulfilled') setBalance(b.value);
       })
       .finally(() => setLoading(false));
-  }, []);
+  };
+
+  useEffect(() => { loadData(); }, []);
+
+  const handleCancel = async (id: number) => {
+    setCancelling(id);
+    try {
+      await leaveApi.cancel(id);
+      setRequests(prev => prev.map(l => l.id === id ? { ...l, status: 'cancelled' as any } : l));
+      addNotification('success', 'Leave Cancelled', `Leave request #${id} has been cancelled.`);
+      loadData();
+    } catch (err: any) {
+      addNotification('error', 'Cancel Failed', err?.response?.data?.detail ?? 'Could not cancel leave.');
+    } finally {
+      setCancelling(null);
+    }
+  };
 
   const validate = () => {
     const e: Record<string, string> = {};
@@ -79,11 +97,13 @@ const EmployeeLeave = () => {
     setSaving(true);
     try {
       const days = Math.ceil((new Date(form.to_date).getTime() - new Date(form.from_date).getTime()) / 86400000) + 1;
-      const created = await leaveApi.apply({ ...form, days, employee_name: 'Me' });
-      setRequests(prev => [created, ...prev]);
+      await leaveApi.apply({ ...form, days, employee_name: 'Me' });
       setModalOpen(false);
       setForm(INITIAL_FORM);
-      addNotification('success', 'Leave Applied', 'Your leave request has been submitted.');
+      addNotification('success', 'Leave Applied', 'Your leave request has been submitted and reviewed by AI.');
+      loadData();
+    } catch (err: any) {
+      addNotification('error', 'Failed', err?.response?.data?.detail ?? 'Could not apply for leave.');
     } finally {
       setSaving(false);
     }
@@ -96,6 +116,17 @@ const EmployeeLeave = () => {
     { key: 'days', header: 'Days', render: r => <span className="font-mono text-sm">{r.days}</span> },
     { key: 'reason', header: 'Reason', render: r => <span className="font-mono text-xs truncate max-w-xs block">{r.reason}</span> },
     { key: 'status', header: 'Status', render: r => <StatusBadge status={r.status} /> },
+    { key: 'id', header: 'Actions', render: r => (
+      (r.status === 'pending' || r.status === 'escalated') ? (
+        <NeoButton
+          variant="danger"
+          size="sm"
+          icon={<XIcon size={14} />}
+          loading={cancelling === r.id}
+          onClick={() => handleCancel(r.id)}
+        >Cancel</NeoButton>
+      ) : null
+    )},
   ];
 
   return (
@@ -161,17 +192,26 @@ const HRLeave = () => {
   const { addNotification } = useNotifications();
   const [pending, setPending] = useState<LeaveRequest[]>([]);
   const [all, setAll] = useState<LeaveRequest[]>([]);
+  const [balance, setBalance] = useState<LeaveBalance | null>(null);
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState<number | null>(null);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [form, setForm] = useState(INITIAL_FORM);
+  const [saving, setSaving] = useState(false);
+  const [errors, setErrors] = useState<Record<string, string>>({});
 
-  useEffect(() => {
-    Promise.allSettled([leaveApi.pending(), leaveApi.all()])
-      .then(([p, a]) => {
+  const loadData = () => {
+    setLoading(true);
+    Promise.allSettled([leaveApi.pending(), leaveApi.all(), leaveApi.balance()])
+      .then(([p, a, b]) => {
         if (p.status === 'fulfilled') setPending(p.value);
         if (a.status === 'fulfilled') setAll(a.value);
+        if (b.status === 'fulfilled') setBalance(b.value);
       })
       .finally(() => setLoading(false));
-  }, []);
+  };
+
+  useEffect(() => { loadData(); }, []);
 
   const handleAction = async (id: number, action: 'approve' | 'reject') => {
     setProcessing(id);
@@ -186,6 +226,34 @@ const HRLeave = () => {
     }
   };
 
+  const validate = () => {
+    const e: Record<string, string> = {};
+    if (!form.from_date) e.from_date = 'Required';
+    if (!form.to_date) e.to_date = 'Required';
+    if (form.from_date && form.to_date && form.from_date > form.to_date) e.to_date = 'Must be after from date';
+    if (!form.reason.trim()) e.reason = 'Required';
+    return e;
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const errs = validate();
+    if (Object.keys(errs).length) { setErrors(errs); return; }
+    setSaving(true);
+    try {
+      const days = Math.ceil((new Date(form.to_date).getTime() - new Date(form.from_date).getTime()) / 86400000) + 1;
+      await leaveApi.apply({ ...form, days, employee_name: 'Me' });
+      setModalOpen(false);
+      setForm(INITIAL_FORM);
+      addNotification('success', 'Leave Applied', 'Your leave request has been submitted and reviewed by AI.');
+      loadData(); // Refresh all data
+    } catch (err: any) {
+      addNotification('error', 'Failed', err?.response?.data?.detail ?? 'Could not apply for leave.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const historyColumns: Column<LeaveRequest>[] = [
     { key: 'employee_name', header: 'Employee' },
     { key: 'leave_type', header: 'Type', render: r => <span className="capitalize font-mono text-sm">{r.leave_type}</span> },
@@ -197,7 +265,13 @@ const HRLeave = () => {
 
   return (
     <div className="flex flex-col gap-6">
-      <PageHeader title="Leave Management" breadcrumbs={[{ label: 'Dashboard' }, { label: 'Leave' }]} />
+      <PageHeader
+        title="Leave Management"
+        breadcrumbs={[{ label: 'Dashboard' }, { label: 'Leave' }]}
+        action={
+          <NeoButton variant="primary" onClick={() => setModalOpen(true)}>Apply for Leave</NeoButton>
+        }
+      />
 
       {/* Pending Cards */}
       <div>
@@ -242,11 +316,51 @@ const HRLeave = () => {
         )}
       </div>
 
+      {/* My Balance */}
+      {balance && (
+        <NeoCard>
+          <h3 className="font-display font-bold text-lg mb-4">My Leave Balance</h3>
+          <div className="flex flex-col gap-4">
+            <BalanceBar label="Annual Leave" total={balance.annual} used={balance.annual_used} color="bg-neo-teal" />
+            <BalanceBar label="Sick Leave" total={balance.sick} used={balance.sick_used} color="bg-neo-coral" />
+            <BalanceBar label="Casual Leave" total={balance.casual} used={balance.casual_used} color="bg-neo-yellow" />
+          </div>
+        </NeoCard>
+      )}
+
       {/* History */}
       <NeoCard>
         <h3 className="font-display font-bold text-lg mb-4">All Leave Requests</h3>
         <DataTable columns={historyColumns} data={all} loading={loading} emptyMessage="No leave requests found." />
       </NeoCard>
+
+      {/* Apply Modal */}
+      <NeoModal open={modalOpen} onClose={() => setModalOpen(false)} title="Apply for Leave">
+        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+          <NeoSelect
+            label="Leave Type"
+            value={form.leave_type}
+            onChange={e => setForm(f => ({ ...f, leave_type: e.target.value as LeaveType }))}
+            options={leaveTypes}
+          />
+          <div className="grid grid-cols-2 gap-3">
+            <NeoInput label="From Date" type="date" value={form.from_date}
+              onChange={e => { setForm(f => ({ ...f, from_date: e.target.value })); setErrors(er => ({ ...er, from_date: '' })); }}
+              error={errors.from_date} />
+            <NeoInput label="To Date" type="date" value={form.to_date}
+              onChange={e => { setForm(f => ({ ...f, to_date: e.target.value })); setErrors(er => ({ ...er, to_date: '' })); }}
+              error={errors.to_date} />
+          </div>
+          <NeoTextarea label="Reason" value={form.reason}
+            onChange={e => { setForm(f => ({ ...f, reason: e.target.value })); setErrors(er => ({ ...er, reason: '' })); }}
+            placeholder="Briefly explain your reason..."
+            error={errors.reason} />
+          <div className="flex gap-3 justify-end pt-2 border-t-2 border-neo-black">
+            <NeoButton type="button" variant="secondary" onClick={() => setModalOpen(false)}>Cancel</NeoButton>
+            <NeoButton type="submit" variant="primary" loading={saving}>Submit Request</NeoButton>
+          </div>
+        </form>
+      </NeoModal>
     </div>
   );
 };

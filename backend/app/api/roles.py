@@ -46,7 +46,7 @@ def _get_employee_count(role_id: int, db: Session) -> int:
 
 # GET /api/roles/ — List all roles
 
-@router.get("/", summary="List all roles — HR Staff+")
+@router.get("", summary="List all roles — HR Staff+")
 def list_roles(
     db:           Session = Depends(get_db),
     current_user          = Depends(require_role(2)),
@@ -74,7 +74,7 @@ def get_role(
 
 # POST /api/roles/ — Create role (Admin only)
 
-@router.post("/", status_code=status.HTTP_201_CREATED, summary="Create role — Admin only")
+@router.post("", status_code=status.HTTP_201_CREATED, summary="Create role — Admin only")
 def create_role(
     body:         RoleCreate,
     db:           Session = Depends(get_db),

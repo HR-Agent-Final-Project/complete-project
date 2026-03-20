@@ -9,7 +9,7 @@ import {
   ReportData, HRDashboardStats, EmployeeDashboardStats, ManagementDashboardStats,
 } from '../types';
 
-const BASE_URL = process.env.REACT_APP_API_URL || 'https://8l8jz23p-8080.asse.devtunnels.ms/api';
+const BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8080/api';
 
 export const apiClient = axios.create({
   baseURL: BASE_URL,
@@ -256,29 +256,33 @@ export const leaveApi = {
     if (USE_MOCK) { await delay(); return mock.mockLeaveRequests.slice(0, 3); }
     const res = await apiClient.get('/leave/my-leaves');
     if (!res.data) return [];
-    return res.data.map((l: any) => ({
+    const items: any[] = res.data.leaves ?? res.data ?? [];
+    return items.map((l: any) => ({
       id: l.id,
-      leave_type: l.leave_type?.name ?? l.leave_type_id,
+      employee_id: l.employee_id ?? 0,
+      employee_name: l.employee_name ?? '',
+      leave_type: l.leave_type ?? l.leave_type_id,
       from_date: l.start_date,
       to_date: l.end_date,
-      days: l.total_days,
+      days: l.days_requested ?? l.total_days,
       status: l.status,
       reason: l.reason,
+      created_at: l.created_at ?? '',
     }));
   },
   pending: async (): Promise<LeaveRequest[]> => {
     if (USE_MOCK) { await delay(); return mock.mockLeaveRequests.filter(l => l.status === 'pending'); }
     const res = await apiClient.get('/leave/pending');
     if (!res.data) return [];
-    const items: any[] = res.data.requests ?? res.data ?? [];
+    const items: any[] = res.data.requests ?? res.data.leaves ?? res.data ?? [];
     return items.map((l: any) => ({
       id: l.id,
       employee_id: l.employee_id,
-      employee_name: l.employee?.full_name ?? '',
-      leave_type: l.leave_type?.name ?? l.leave_type_id,
+      employee_name: l.employee_name ?? l.employee?.full_name ?? '',
+      leave_type: l.leave_type ?? l.leave_type_id,
       from_date: l.start_date,
       to_date: l.end_date,
-      days: l.total_days,
+      days: l.days_requested ?? l.total_days,
       reason: l.reason ?? '',
       status: l.status,
       created_at: l.created_at ?? '',
@@ -288,15 +292,15 @@ export const leaveApi = {
     if (USE_MOCK) { await delay(); return mock.mockLeaveRequests; }
     const res = await apiClient.get('/leave/all');
     if (!res.data) return [];
-    const items: any[] = res.data.requests ?? res.data ?? [];
+    const items: any[] = res.data.leaves ?? res.data.requests ?? res.data ?? [];
     return items.map((l: any) => ({
       id: l.id,
       employee_id: l.employee_id,
-      employee_name: l.employee?.full_name ?? '',
-      leave_type: l.leave_type?.name ?? l.leave_type_id,
+      employee_name: l.employee_name ?? l.employee?.full_name ?? '',
+      leave_type: l.leave_type ?? l.leave_type_id,
       from_date: l.start_date,
       to_date: l.end_date,
-      days: l.total_days,
+      days: l.days_requested ?? l.total_days,
       reason: l.reason ?? '',
       status: l.status,
       created_at: l.created_at ?? '',
@@ -320,10 +324,43 @@ export const leaveApi = {
       casual_used: casual.used_days      ?? 0,
     };
   },
+  types: async (): Promise<any[]> => {
+    const res = await apiClient.get('/leave/types');
+    return res.data?.types ?? [];
+  },
   apply: async (data: Partial<LeaveRequest>): Promise<LeaveRequest> => {
     if (USE_MOCK) { await delay(); return { ...mock.mockLeaveRequests[0], ...data, id: Date.now(), status: 'pending' } as LeaveRequest; }
-    const res = await apiClient.post('/leave/apply', data);
-    return res.data;
+    // Map frontend field names to backend schema
+    const payload: any = {
+      start_date: data.from_date,
+      end_date: data.to_date,
+      reason: data.reason ?? '',
+      is_half_day: false,
+    };
+    // Resolve leave_type string to leave_type_id
+    if (typeof data.leave_type === 'number') {
+      payload.leave_type_id = data.leave_type;
+    } else {
+      // Fetch types to find the ID
+      const types = await leaveApi.types();
+      const typeMap: Record<string, string> = {
+        annual: 'AL', sick: 'SL', casual: 'CL',
+        maternity: 'ML', paternity: 'PL', 'no pay': 'NPL',
+      };
+      const code = typeMap[(data.leave_type ?? '').toLowerCase()] ?? (data.leave_type ?? '').toUpperCase();
+      const found = types.find((t: any) => t.code === code || t.name?.toLowerCase().includes((data.leave_type ?? '').toLowerCase()));
+      payload.leave_type_id = found?.id ?? 1;
+    }
+    const res = await apiClient.post('/leave/apply', payload);
+    return {
+      id: res.data.leave_id ?? res.data.id,
+      leave_type: res.data.leave_type ?? data.leave_type,
+      from_date: data.from_date,
+      to_date: data.to_date,
+      days: res.data.days ?? data.days,
+      reason: data.reason,
+      status: res.data.status ?? 'pending',
+    } as LeaveRequest;
   },
   approve: async (id: number): Promise<void> => {
     if (USE_MOCK) { await delay(); return; }
@@ -332,6 +369,10 @@ export const leaveApi = {
   reject: async (id: number, reason?: string): Promise<void> => {
     if (USE_MOCK) { await delay(); return; }
     await apiClient.post(`/leave/${id}/reject`, { reason: reason ?? '' });
+  },
+  cancel: async (id: number, reason?: string): Promise<void> => {
+    if (USE_MOCK) { await delay(); return; }
+    await apiClient.post(`/leave/${id}/cancel`, { reason: reason ?? '' });
   },
 };
 

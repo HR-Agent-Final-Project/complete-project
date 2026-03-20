@@ -55,7 +55,7 @@ router = APIRouter()
 
 # Agent invocation timeout in seconds — prevents holding DB connections indefinitely
 # when OpenAI is slow or rate-limited.
-AGENT_TIMEOUT_SECONDS = 60
+AGENT_TIMEOUT_SECONDS = 120
 
 # ── LangGraph Chat Agent — one LLM instance shared across requests ─────────────
 # The LLM itself is stateless; per-request state (employee_id, db) is injected
@@ -624,10 +624,10 @@ def _run_agent(
         return reply, sources
 
     except Exception as e:
-        logger.error("[Chat] Agent error for employee %s: %s", employee_id, e)
+        import traceback
+        logger.error("[Chat] Agent error for employee %s: %s\n%s", employee_id, e, traceback.format_exc())
         return (
-            "I'm having trouble processing your request right now. "
-            "Please try again or contact HR directly.",
+            f"Sorry, I encountered an error: {str(e)[:200]}. Please try again or contact HR directly.",
             [],
         )
 
