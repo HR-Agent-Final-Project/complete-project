@@ -66,7 +66,7 @@ router = APIRouter()
 
 # ── REST ──────────────────────────────────────────────────────────────────────
 
-@router.get("/", response_model=List[NotificationOut])
+@router.get("", response_model=List[NotificationOut])
 def list_notifications(
     unread_only : bool           = Query(False),
     limit       : int            = Query(50, ge=1, le=200),

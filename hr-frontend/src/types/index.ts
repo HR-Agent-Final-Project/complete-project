@@ -80,7 +80,7 @@ export interface AttendanceSummary {
 
 // ─── Leave ────────────────────────────────────────────────────────────────────
 export type LeaveType = 'annual' | 'sick' | 'casual' | 'maternity' | 'paternity';
-export type LeaveStatus = 'pending' | 'approved' | 'rejected';
+export type LeaveStatus = 'pending' | 'approved' | 'rejected' | 'escalated' | 'cancelled';
 
 export interface LeaveRequest {
   id: number;

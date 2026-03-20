@@ -67,7 +67,7 @@ def employee_to_dict(emp) -> dict:
 
 # GET /api/employees — List all employees
 
-@router.get("/", summary="List all employees — HR Staff and above")
+@router.get("", summary="List all employees — HR Staff and above")
 def list_employees(
     department_id: Optional[int]            = Query(None),
     role_id:       Optional[int]            = Query(None),

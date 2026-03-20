@@ -35,7 +35,7 @@ def _get_employee_count(dept_id: int, db: Session) -> int:
 
 # GET /api/departments/ — List all departments
 
-@router.get("/", summary="List all departments — HR Staff+")
+@router.get("", summary="List all departments — HR Staff+")
 def list_departments(
     db:           Session = Depends(get_db),
     current_user          = Depends(require_role(2)),
@@ -63,7 +63,7 @@ def get_department(
 
 # POST /api/departments/ — Create department
 
-@router.post("/", status_code=status.HTTP_201_CREATED, summary="Create department — HR Manager+")
+@router.post("", status_code=status.HTTP_201_CREATED, summary="Create department — HR Manager+")
 def create_department(
     body:         DepartmentCreate,
     db:           Session = Depends(get_db),

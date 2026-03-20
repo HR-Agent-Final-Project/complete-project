@@ -64,6 +64,7 @@ app = FastAPI(
     docs_url="/docs",
     swagger_ui_parameters={"persistAuthorization": True},
     lifespan=lifespan,
+    redirect_slashes=False,
 )
 
 app.add_middleware(
