@@ -15,7 +15,25 @@ import { useNotifications } from '../context/NotificationContext';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface Dept { id: number; name: string; code: string }
-interface Role { id: number; title: string; access_level: number }
+interface Role { id: number; title: string; code: string; access_level: number }
+
+// Maps department code → role code prefixes that belong to it
+const DEPT_ROLE_MAP: Record<string, string[]> = {
+  ADMIN:     ['ADMIN_', 'CEO', 'DIRECTOR'],
+  HR:        ['HR_'],
+  ENG:       ['ENG_', 'CTO'],
+  PM:        ['PM_'],
+  QA:        ['QA_'],
+  DEVOPS:    ['DEVOPS_'],
+  DESIGN:    ['DESIGN_'],
+  DATA:      ['DATA_'],
+  SEC:       ['SEC_'],
+  ITSUPPORT: ['IT_'],
+  SALES:     ['SALES_', 'MKT_'],
+  FIN:       ['FIN_'],
+  LEGAL:     ['LEGAL_', 'COMPLIANCE'],
+  CS:        ['CS_'],
+};
 
 interface RegisterForm {
   // Personal
@@ -331,9 +349,17 @@ export const Employees = () => {
     { value: '', label: 'Select department...' },
     ...departments.map(d => ({ value: String(d.id), label: d.name })),
   ];
+
+  // Filter roles by selected department
+  const selectedDept = departments.find(d => String(d.id) === form.department_id);
+  const rolePrefixes = selectedDept ? (DEPT_ROLE_MAP[selectedDept.code] ?? []) : [];
+  const filteredRoles = selectedDept
+    ? roles.filter(r => rolePrefixes.some(prefix => r.code.startsWith(prefix) || r.code === prefix))
+    : roles;
+
   const roleOptions = [
-    { value: '', label: 'Select role...' },
-    ...roles.map(r => ({ value: String(r.id), label: r.title })),
+    { value: '', label: filteredRoles.length ? 'Select role...' : 'Select a department first' },
+    ...filteredRoles.map(r => ({ value: String(r.id), label: r.title })),
   ];
   const filterDepts = ['All', ...departments.map(d => d.name)];
 
@@ -400,8 +426,13 @@ export const Employees = () => {
       <div className="border-t-2 border-neo-black pt-3">
         <p className="font-display font-bold text-sm mb-3 bg-neo-yellow px-2 py-1 inline-block border-2 border-neo-black">Employment</p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <NeoSelect label="Department" value={form.department_id} onChange={e => f('department_id', e.target.value)} options={deptOptions} />
-          <NeoSelect label="Role / Position" value={form.role_id} onChange={e => f('role_id', e.target.value)} options={roleOptions} />
+          <NeoSelect label="Department" value={form.department_id}
+            onChange={e => { f('department_id', e.target.value); f('role_id', ''); }}
+            options={deptOptions} />
+          <NeoSelect label="Role / Position" value={form.role_id}
+            onChange={e => f('role_id', e.target.value)}
+            options={roleOptions}
+            disabled={!form.department_id} />
           <NeoSelect label="Employment Type" value={form.employment_type} onChange={e => f('employment_type', e.target.value)}
             options={[
               { value: 'full_time', label: 'Full Time' },

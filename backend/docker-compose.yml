@@ -1,5 +1,24 @@
 services:
 
+  # ── PostgreSQL (local database) ───────────────────────────────────────────
+  postgres:
+    image: postgres:17-alpine
+    container_name: aihr_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: hr_manager
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   # ── ChromaDB (vector store for HR policy RAG) ─────────────────────────────
   chromadb:
     image: chromadb/chroma:latest
@@ -48,5 +67,6 @@ services:
       - "5050:80"
 
 volumes:
+  postgres_data:
   chroma_data:
   redis_data:

@@ -205,10 +205,10 @@ export const departmentApi = {
 };
 
 export const roleApi = {
-  list: async (): Promise<{ id: number; title: string; access_level: number }[]> => {
+  list: async (): Promise<{ id: number; title: string; code: string; access_level: number }[]> => {
     const res = await apiClient.get('/roles');
     if (!res.data) return [];
-    return res.data;
+    return res.data.map((r: any) => ({ id: r.id, title: r.title, code: r.code ?? '', access_level: r.access_level }));
   },
 };
 
@@ -296,6 +296,7 @@ export const leaveApi = {
     return items.map((l: any) => ({
       id: l.id,
       employee_id: l.employee_id,
+      employee_number: l.employee_number ?? null,
       employee_name: l.employee_name ?? l.employee?.full_name ?? '',
       leave_type: l.leave_type ?? l.leave_type_id,
       from_date: l.start_date,
@@ -360,7 +361,10 @@ export const leaveApi = {
       days: res.data.days ?? data.days,
       reason: data.reason,
       status: res.data.status ?? 'pending',
-    } as LeaveRequest;
+      ai_decision: res.data.ai_decision,
+      ai_reasoning: res.data.ai_reasoning,
+      next_step: res.data.next_step,
+    } as any;
   },
   approve: async (id: number): Promise<void> => {
     if (USE_MOCK) { await delay(); return; }

@@ -324,18 +324,7 @@ async def clock_in_face(
                 "message": "No employee faces registered yet.",
             }
 
-        best_match     = None
-        best_confidence = 0.0
-
-        for emp in employees:
-            face_path = get_face_path(emp.id)
-            if not os.path.exists(face_path):
-                continue
-
-            result = await _verify_face_bytes(emp.id, image_bytes)
-            if result["verified"] and result["confidence_score"] > best_confidence:
-                best_match      = emp
-                best_confidence = result["confidence_score"]
+        best_match, best_confidence = await _identify_from_all_faces(image_bytes, employees)
 
         if not best_match:
             return {
@@ -400,16 +389,7 @@ async def clock_out_face(
             Employee.face_registered == True,
         ).all()
 
-        best_match      = None
-        best_confidence = 0.0
-
-        for emp in employees:
-            if not os.path.exists(get_face_path(emp.id)):
-                continue
-            result = await _verify_face_bytes(emp.id, image_bytes)
-            if result["verified"] and result["confidence_score"] > best_confidence:
-                best_match      = emp
-                best_confidence = result["confidence_score"]
+        best_match, best_confidence = await _identify_from_all_faces(image_bytes, employees)
 
         if not best_match:
             return {
@@ -821,70 +801,183 @@ def ot_report(
 
 FACE_MATCH_THRESHOLD = 0.60  # cosine distance threshold — lenient for webcam conditions
 
+# ── Module-level embedding cache  (loaded once, reused every scan) ────────────
+_embedding_cache: dict = {}   # employee_id → numpy array
+
+
+def _cosine_distance(a, b) -> float:
+    """Cosine distance between two numpy vectors (0 = identical, 1 = opposite)."""
+    import numpy as np
+    a, b = np.array(a), np.array(b)
+    denom = (np.linalg.norm(a) * np.linalg.norm(b))
+    if denom == 0:
+        return 1.0
+    return float(1.0 - np.dot(a, b) / denom)
+
+
+def _extract_embedding(image_bytes: bytes) -> list:
+    """
+    Extract Facenet512 embedding from raw image bytes.
+    Returns a list of floats, or raises an exception on failure.
+    ONE DeepFace call — much faster than DeepFace.verify().
+    """
+    from deepface import DeepFace
+    import numpy as np
+    import tempfile, os
+
+    # Write to temp file (DeepFace needs a file path or numpy array)
+    with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
+        tmp.write(image_bytes)
+        tmp_path = tmp.name
+
+    try:
+        result = DeepFace.represent(
+            img_path          = tmp_path,
+            model_name        = "Facenet512",
+            detector_backend  = "opencv",
+            enforce_detection = False,
+        )
+        return result[0]["embedding"]
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+
+
 async def _verify_face_bytes(employee_id: int, image_bytes: bytes) -> dict:
-    """Verify face bytes against stored face for employee."""
-    import logging
-    logger = logging.getLogger(__name__)
+    """
+    Verify face bytes against stored embedding for an employee.
+
+    Fast path: compare new image embedding against stored DB embedding
+               (1 DeepFace call total, no looping).
+    Slow fallback: image-vs-image comparison if no embedding stored.
+    """
+    from app.models.employee import Employee
+    from app.core.database import SessionLocal
+    import json
 
     face_path = get_face_path(employee_id)
-
     if not os.path.exists(face_path):
         return {"verified": False, "confidence_score": 0.0,
                 "message": f"No face registered for employee #{employee_id}"}
 
-    # Save temp file for comparison
-    temp_path = f"uploads/faces/emp_{employee_id}/temp_verify.jpg"
-    with open(temp_path, "wb") as f:
-        f.write(image_bytes)
-
     try:
         from deepface import DeepFace
 
-        # Try multiple detector backends for robustness
-        best_distance = 1.0
-        for detector in ["opencv", "ssd"]:
+        # ── Step 1: Get stored embedding (from cache or DB) ───────────────────
+        stored_emb = _embedding_cache.get(employee_id)
+        if stored_emb is None:
+            db = SessionLocal()
             try:
-                result = DeepFace.verify(
-                    img1_path         = temp_path,
-                    img2_path         = face_path,
-                    model_name        = "Facenet512",
-                    distance_metric   = "cosine",
-                    detector_backend  = detector,
-                    enforce_detection = False,
-                )
-                dist = result.get("distance", 1.0)
-                logger.info(
-                    f"Face verify emp#{employee_id} [{detector}]: distance={dist:.4f}"
-                )
-                if dist < best_distance:
-                    best_distance = dist
-            except Exception as det_err:
-                logger.warning(f"Detector {detector} failed for emp#{employee_id}: {det_err}")
-                continue
+                emp = db.query(Employee).filter(Employee.id == employee_id).first()
+                if emp and emp.face_embedding:
+                    raw = emp.face_embedding
+                    stored_emb = raw if isinstance(raw, list) else json.loads(raw)
+                    _embedding_cache[employee_id] = stored_emb
+            finally:
+                db.close()
 
-        distance   = best_distance
-        verified   = distance <= FACE_MATCH_THRESHOLD
-        confidence = round(max(0.0, min(1.0, 1.0 - distance)), 4)
+        # ── Step 2: Extract embedding from new image (1 call) ─────────────────
+        try:
+            new_emb = _extract_embedding(image_bytes)
+        except Exception as e:
+            logger.warning(f"Embedding extraction failed for new image: {e}")
+            new_emb = None
 
-        logger.info(
-            f"Face verify emp#{employee_id} FINAL: distance={distance:.4f}, "
-            f"threshold={FACE_MATCH_THRESHOLD}, verified={verified}, confidence={confidence}"
-        )
+        # ── Step 3: Compare embeddings ────────────────────────────────────────
+        if stored_emb and new_emb:
+            distance   = _cosine_distance(stored_emb, new_emb)
+            verified   = distance <= FACE_MATCH_THRESHOLD
+            confidence = round(max(0.0, min(1.0, 1.0 - distance)), 4)
+            logger.info(f"Face verify emp#{employee_id} [embedding]: dist={distance:.4f} verified={verified}")
+            return {"verified": verified, "confidence_score": confidence, "distance": distance}
 
-        if os.path.exists(temp_path):
-            os.remove(temp_path)
-
-        return {"verified": verified, "confidence_score": confidence, "distance": distance}
+        # ── Fallback: image-vs-image if no stored embedding ───────────────────
+        temp_path = f"uploads/faces/emp_{employee_id}/temp_verify.jpg"
+        with open(temp_path, "wb") as f:
+            f.write(image_bytes)
+        try:
+            result = DeepFace.verify(
+                img1_path         = temp_path,
+                img2_path         = face_path,
+                model_name        = "Facenet512",
+                distance_metric   = "cosine",
+                detector_backend  = "opencv",
+                enforce_detection = False,
+            )
+            distance   = result.get("distance", 1.0)
+            verified   = distance <= FACE_MATCH_THRESHOLD
+            confidence = round(max(0.0, min(1.0, 1.0 - distance)), 4)
+            logger.info(f"Face verify emp#{employee_id} [fallback img]: dist={distance:.4f} verified={verified}")
+            return {"verified": verified, "confidence_score": confidence, "distance": distance}
+        finally:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
 
     except ImportError:
-        if os.path.exists(temp_path): os.remove(temp_path)
         return {"verified": True, "confidence_score": 0.85,
                 "message": "DeepFace not installed — manual verification mode."}
 
     except Exception as e:
         logger.error(f"Face verify error emp#{employee_id}: {e}")
-        if os.path.exists(temp_path): os.remove(temp_path)
         return {"verified": False, "confidence_score": 0.0, "message": str(e)}
+
+
+async def _identify_from_all_faces(image_bytes: bytes, employees: list) -> tuple:
+    """
+    Fast auto-identify: extract ONE embedding from new image, then compare
+    against all stored embeddings using cosine distance.
+    Returns (best_match_employee, best_confidence) or (None, 0.0).
+
+    O(1) DeepFace calls instead of O(N) — dramatically faster with many employees.
+    """
+    from app.models.employee import Employee
+    from app.core.database import SessionLocal
+    import json
+
+    # Extract embedding from the new image once
+    try:
+        new_emb = _extract_embedding(image_bytes)
+    except Exception as e:
+        logger.warning(f"Auto-identify embedding extraction failed: {e}. Falling back to per-employee verify.")
+        new_emb = None
+
+    best_match      = None
+    best_confidence = 0.0
+
+    if new_emb:
+        # Fast path: compare against stored embeddings
+        for emp in employees:
+            stored_emb = _embedding_cache.get(emp.id)
+            if stored_emb is None:
+                db = SessionLocal()
+                try:
+                    e = db.query(Employee).filter(Employee.id == emp.id).first()
+                    if e and e.face_embedding:
+                        raw = e.face_embedding
+                        stored_emb = raw if isinstance(raw, list) else json.loads(raw)
+                        _embedding_cache[emp.id] = stored_emb
+                finally:
+                    db.close()
+
+            if stored_emb is None:
+                continue
+
+            distance   = _cosine_distance(stored_emb, new_emb)
+            confidence = round(max(0.0, min(1.0, 1.0 - distance)), 4)
+            if distance <= FACE_MATCH_THRESHOLD and confidence > best_confidence:
+                best_match      = emp
+                best_confidence = confidence
+    else:
+        # Slow fallback: per-employee verify
+        for emp in employees:
+            if not os.path.exists(get_face_path(emp.id)):
+                continue
+            result = await _verify_face_bytes(emp.id, image_bytes)
+            if result["verified"] and result["confidence_score"] > best_confidence:
+                best_match      = emp
+                best_confidence = result["confidence_score"]
+
+    return best_match, best_confidence
 
 
 CLOCK_OUT_GAP_MINUTES = 5  # minimum minutes after clock-in before a scan counts as clock-out

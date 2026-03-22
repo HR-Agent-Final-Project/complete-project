@@ -428,7 +428,7 @@ def self_register(body: SelfRegisterRequest, db: Session = Depends(get_db)):
         )
 
     # Find matching role by access_level
-    role_level = 3 if body.requested_role == "hr_admin" else 4
+    role_level = 4 if body.requested_role == "hr_admin" else 4
     role = db.query(Role).filter(Role.access_level == role_level).first()
 
     # Generate employee number
@@ -447,8 +447,8 @@ def self_register(body: SelfRegisterRequest, db: Session = Depends(get_db)):
         role_id         = role.id if role else None,
         employment_type = "full_time",
         hashed_password = hash_password(body.password),
-        status          = EmployeeStatus.PROBATION,  # Safe enum value; is_active=False blocks login
-        is_active       = False,   # Blocked until HR approves
+        status          = EmployeeStatus.ACTIVE,
+        is_active       = True,   # Auto-activated for HR/Manager registrations
         hire_date       = date.today(),
         language_pref   = "en",
     )
