@@ -52,7 +52,7 @@ class Employee(Base, TimestampMixin):
     #Contact
     personal_email   = Column(String(200), unique=True, nullable=False)
     work_email       = Column(String(200), unique=True, nullable=True)
-    phone_number     = Column(String(20), nullable=True)
+    phone_number     = Column(String(100), nullable=True)
     address          = Column(Text, nullable=True)
     city             = Column(String(100), nullable=True)
     district         = Column(String(100), nullable=True)        # Sri Lanka district

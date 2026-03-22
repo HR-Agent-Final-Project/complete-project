@@ -2,19 +2,17 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from app.core.config import settings
 
-# Neon requires SSL connection
-connect_args = {}
-if "neon.tech" in settings.DATABASE_URL:
-    connect_args = {"sslmode": "require"}
-
 engine = create_engine(
     settings.DATABASE_URL,
     pool_pre_ping=True,
-    pool_recycle=300, 
+    pool_recycle=300,
     pool_size=5,
     max_overflow=10,
+    pool_timeout=30,
     echo=settings.DEBUG,
-    connect_args={"sslmode": "require"}, 
+    connect_args={
+        "connect_timeout": 10,
+    },
 )
 
 SessionLocal = sessionmaker(

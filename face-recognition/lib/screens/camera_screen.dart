@@ -256,12 +256,17 @@ class _CameraScreenState extends State<CameraScreen> {
       if (response.statusCode == 200) {
         _handleRecognitionResponse(json.decode(response.body));
       } else {
-        if (mounted) _showErrorDialog('Server error: ${response.statusCode}');
+        if (mounted) {
+          _showErrorDialog(
+            'Server error ${response.statusCode}\n\n'
+            '${response.body.length > 300 ? response.body.substring(0, 300) : response.body}',
+          );
+        }
       }
     } catch (e) {
       if (mounted) {
         Navigator.of(context).pop();
-        _showErrorDialog('Connection error: ${e.toString()}');
+        _showErrorDialog('Connection error:\n${e.toString()}');
       }
     }
   }
@@ -270,6 +275,7 @@ class _CameraScreenState extends State<CameraScreen> {
     try {
       final url = Uri.parse(
           dotenv.env['FACE_RECOGNITION_API_URL'] ?? 'http://10.0.2.2:8080/api/attendance/clock-in-face');
+      debugPrint('Sending to: $url');
       var request = http.MultipartRequest('POST', url);
       request.files.add(await http.MultipartFile.fromPath('image', imagePath));
       if (_currentPosition != null) {
@@ -277,21 +283,27 @@ class _CameraScreenState extends State<CameraScreen> {
         request.fields['longitude'] = _currentPosition!.longitude.toString();
       }
       var streamedResponse = await request.send().timeout(
-        const Duration(seconds: 30),
-        onTimeout: () => throw Exception('Connection timeout.'),
+        const Duration(seconds: 45),
+        onTimeout: () => throw Exception('Connection timeout — check that the backend is running and the URL is correct.'),
       );
       var response = await http.Response.fromStream(streamedResponse);
+      debugPrint('Response ${response.statusCode}: ${response.body.substring(0, response.body.length.clamp(0, 200))}');
       if (mounted) Navigator.of(context).pop();
 
       if (response.statusCode == 200) {
         _handleRecognitionResponse(json.decode(response.body));
       } else {
-        if (mounted) _showErrorDialog('Server error: ${response.statusCode}');
+        if (mounted) {
+          _showErrorDialog(
+            'Server error ${response.statusCode}\n\n'
+            '${response.body.length > 300 ? response.body.substring(0, 300) : response.body}',
+          );
+        }
       }
     } catch (e) {
       if (mounted) {
         Navigator.of(context).pop();
-        _showErrorDialog('Connection error: ${e.toString()}');
+        _showErrorDialog('Connection error:\n${e.toString()}');
       }
     }
   }
@@ -711,39 +723,22 @@ class _CameraScreenState extends State<CameraScreen> {
                 // Camera preview fills screen
                 CameraPreview(_controller),
 
-                // Dark overlay vignette
-                Container(
-                  decoration: const BoxDecoration(
-                    gradient: RadialGradient(
-                      center: Alignment.center,
-                      radius: 0.85,
-                      colors: [Colors.transparent, Color(0xAA000000)],
-                    ),
-                  ),
+                // ── Dark overlay with oval face cutout ─────────────────
+                CustomPaint(
+                  painter: _FaceOvalOverlayPainter(),
+                  child: const SizedBox.expand(),
                 ),
 
-                // ── Scan frame overlay ─────────────────────────────────
+                // ── Animated oval border around face area ──────────────
                 Center(
-                  child: SizedBox(
-                    width: 260,
-                    height: 260,
-                    child: Stack(
-                      children: [
-                        // Main frame
-                        Container(
-                          decoration: BoxDecoration(
-                            border: Border.all(color: Colors.white, width: 2),
-                          ),
-                        ),
-                        // Corner accents — TL
-                        Positioned(top: 0, left: 0, child: _CornerAccent(topLeft: true)),
-                        // Corner accents — TR
-                        Positioned(top: 0, right: 0, child: _CornerAccent(topRight: true)),
-                        // Corner accents — BL
-                        Positioned(bottom: 0, left: 0, child: _CornerAccent(bottomLeft: true)),
-                        // Corner accents — BR
-                        Positioned(bottom: 0, right: 0, child: _CornerAccent(bottomRight: true)),
-                      ],
+                  child: Transform.translate(
+                    offset: const Offset(0, -30),
+                    child: SizedBox(
+                      width: 260,
+                      height: 320,
+                      child: CustomPaint(
+                        painter: _FaceOvalBorderPainter(),
+                      ),
                     ),
                   ),
                 ),
@@ -857,6 +852,67 @@ class _CameraScreenState extends State<CameraScreen> {
 }
 
 // ─── Decorative background balls ─────────────────────────────────────────────
+// ─── Face oval overlay — dark outside, transparent inside ────────────────────
+class _FaceOvalOverlayPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final ovalW  = 260.0;
+    final ovalH  = 320.0;
+    final centerX = size.width / 2;
+    final centerY = size.height / 2 - 30; // shift up slightly
+
+    final ovalRect = Rect.fromCenter(
+      center: Offset(centerX, centerY),
+      width:  ovalW,
+      height: ovalH,
+    );
+
+    // Full-screen dark mask with oval hole punched out
+    final path = Path()
+      ..addRect(Rect.fromLTWH(0, 0, size.width, size.height))
+      ..addOval(ovalRect)
+      ..fillType = PathFillType.evenOdd;
+
+    canvas.drawPath(
+      path,
+      Paint()..color = const Color(0xBB000000),
+    );
+  }
+
+  @override
+  bool shouldRepaint(_FaceOvalOverlayPainter old) => false;
+}
+
+// ─── Glowing oval border around face ─────────────────────────────────────────
+class _FaceOvalBorderPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rect = Rect.fromLTWH(0, 0, size.width, size.height);
+
+    // Outer glow
+    canvas.drawOval(
+      rect,
+      Paint()
+        ..color   = const Color(0xFFFFEE32).withValues(alpha: 0.3)
+        ..style   = PaintingStyle.stroke
+        ..strokeWidth = 8
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8),
+    );
+
+    // Sharp yellow border
+    canvas.drawOval(
+      rect,
+      Paint()
+        ..color       = const Color(0xFFFFEE32)
+        ..style       = PaintingStyle.stroke
+        ..strokeWidth = 3,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_FaceOvalBorderPainter old) => false;
+}
+
 class _NeoBalls extends StatelessWidget {
   const _NeoBalls();
 

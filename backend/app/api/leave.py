@@ -251,11 +251,23 @@ def _run_ai_review(db: Session, leave_request, employee, leave_type) -> dict:
     balance = get_leave_balance_record(db, employee.id, leave_type.id)
     days    = leave_request.days_requested
 
+    # Auto-create balance record if missing (handles employees registered before leave types existed)
     if not balance:
-        reject        = True
-        reject_reason = f"No leave balance record found for {leave_type.name}."
-        steps.append(f"No balance record for {leave_type.name}.")
-    elif balance.remaining_days < days:
+        from app.models.leave import LeaveBalance
+        balance = LeaveBalance(
+            employee_id    = employee.id,
+            leave_type_id  = leave_type.id,
+            year           = date.today().year,
+            total_days     = leave_type.max_days_per_year,
+            used_days      = 0,
+            remaining_days = leave_type.max_days_per_year,
+        )
+        db.add(balance)
+        db.commit()
+        db.refresh(balance)
+        steps.append(f"Balance initialised — {balance.remaining_days} days available.")
+
+    if balance.remaining_days < days:
         reject        = True
         reject_reason = (
             f"Insufficient {leave_type.name} balance. "
@@ -531,20 +543,49 @@ def cancel_leave(
     if leave.employee_id != current_user.id:
         raise HTTPException(status_code=403, detail="You can only cancel your own leave requests.")
 
-    if leave.status not in (LeaveStatus.PENDING, LeaveStatus.ESCALATED):
+    cancellable = (LeaveStatus.PENDING, LeaveStatus.ESCALATED, LeaveStatus.APPROVED)
+    if leave.status not in cancellable:
         raise HTTPException(
             status_code=400,
-            detail=f"Cannot cancel a leave that is already {leave.status}. Contact HR."
+            detail=f"Cannot cancel a leave with status '{leave.status}'.",
         )
 
+    # Approved leaves can only be cancelled before the leave starts
+    if leave.status == LeaveStatus.APPROVED and leave.start_date <= date.today():
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot cancel an approved leave that has already started.",
+        )
+
+    was_approved = leave.status == LeaveStatus.APPROVED
     leave.status   = LeaveStatus.CANCELLED
     leave.hr_notes = f"Cancelled by employee. Reason: {body.reason or 'No reason given.'}"
     db.commit()
 
+    # Restore balance if the leave was already approved (days were deducted)
+    if was_approved:
+        balance = get_leave_balance_record(db, leave.employee_id, leave.leave_type_id)
+        if balance:
+            days = leave.days_requested or leave.total_days
+            balance.used_days      = max(0, balance.used_days - days)
+            balance.remaining_days += days
+            db.commit()
+
+    send_notification(
+        db, leave.employee_id,
+        title   = "Leave Request Cancelled",
+        message = (
+            f"Your {leave.leave_type.name if leave.leave_type else 'leave'} "
+            f"from {leave.start_date} to {leave.end_date} has been cancelled."
+            + (" Your leave balance has been restored." if was_approved else "")
+        ),
+    )
+
     return {
-        "message":  "Leave request cancelled successfully.",
-        "leave_id": leave_id,
-        "status":   "cancelled",
+        "message":         "Leave request cancelled successfully.",
+        "leave_id":        leave_id,
+        "status":          "cancelled",
+        "balance_restored": was_approved,
     }
 
 
@@ -873,13 +914,22 @@ def all_leaves(
     total  = q.count()
     leaves = q.order_by(LeaveRequest.created_at.desc()).offset((page - 1) * page_size).limit(page_size).all()
 
+    result = []
+    for l in leaves:
+        emp = db.query(Employee).filter(Employee.id == l.employee_id).first()
+        row = leave_to_dict(l)
+        row["employee_name"]   = emp.full_name if emp else "Unknown"
+        row["employee_number"] = emp.employee_number if emp else None
+        row["department"]      = emp.department.name if emp and emp.department else None
+        result.append(row)
+
     return {
-        "total":    total,
-        "page":     page,
+        "total":     total,
+        "page":      page,
         "page_size": page_size,
-        "pending":  db.query(LeaveRequest).filter(LeaveRequest.status == "pending").count(),
+        "pending":   db.query(LeaveRequest).filter(LeaveRequest.status == "pending").count(),
         "escalated": db.query(LeaveRequest).filter(LeaveRequest.status == "escalated").count(),
-        "leaves":   [leave_to_dict(l) for l in leaves],
+        "leaves":    result,
     }
 
 

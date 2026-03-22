@@ -89,11 +89,6 @@ const EmployeeDashboard = () => {
               <p className="font-mono text-sm text-neo-black/50 mt-1">{user?.department} · {user?.position}</p>
             </div>
           </div>
-          <NeoButton variant="teal" size="lg" loading={marking} onClick={markAttendance}
-            icon={<CalendarCheck size={18} />}
-            className="w-full sm:w-auto text-base px-6 py-3">
-            Mark Attendance
-          </NeoButton>
         </div>
       </div>
 
