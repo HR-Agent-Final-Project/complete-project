@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
+import ReactMarkdown from 'react-markdown';
 import { Send, Plus, Bot, User, Trash2, FileText, PanelLeftOpen, PanelLeftClose, Sparkles, MessageSquare, Zap, Mic, Volume2, VolumeX, Square, CircleStop } from 'lucide-react';
 import { ChatMessage, Conversation } from '../types';
 import { chatApi } from '../services/api';
@@ -38,6 +39,26 @@ const DecoSquare = ({ size, color, className, rotate = 0 }: { size: number; colo
   />
 );
 
+/* ── Markdown Renderer ────────────────────────────────────────── */
+const MarkdownContent = ({ children }: { children: string }) => (
+  <ReactMarkdown
+    components={{
+      p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+      strong: ({ children }) => <strong className="font-bold text-neo-black">{children}</strong>,
+      em: ({ children }) => <em className="italic">{children}</em>,
+      ul: ({ children }) => <ul className="list-disc list-inside mb-2 space-y-1">{children}</ul>,
+      ol: ({ children }) => <ol className="list-decimal list-inside mb-2 space-y-1">{children}</ol>,
+      li: ({ children }) => <li className="ml-2">{children}</li>,
+      code: ({ children }) => <code className="bg-neo-bg border border-neo-black/20 px-1 py-0.5 text-[11px] rounded">{children}</code>,
+      h1: ({ children }) => <h1 className="font-display font-bold text-base mb-1">{children}</h1>,
+      h2: ({ children }) => <h2 className="font-display font-bold text-sm mb-1">{children}</h2>,
+      h3: ({ children }) => <h3 className="font-display font-bold text-xs mb-1">{children}</h3>,
+    }}
+  >
+    {children}
+  </ReactMarkdown>
+);
+
 /* ── Typewriter Text Component ────────────────────────────────── */
 const TypewriterText = ({ text, onComplete, speed = 18 }: { text: string; onComplete?: () => void; speed?: number }) => {
   const [displayed, setDisplayed] = useState('');
@@ -70,10 +91,12 @@ const TypewriterText = ({ text, onComplete, speed = 18 }: { text: string; onComp
     return () => { if (timerRef.current) clearTimeout(timerRef.current); };
   }, [text, speed, onComplete]);
 
+  if (done) return <MarkdownContent>{text}</MarkdownContent>;
+
   return (
     <span>
       {displayed}
-      {!done && <span className="inline-block w-[2px] h-[1em] bg-neo-black ml-0.5 align-text-bottom animate-pulse" />}
+      <span className="inline-block w-[2px] h-[1em] bg-neo-black ml-0.5 align-text-bottom animate-pulse" />
     </span>
   );
 };
@@ -674,18 +697,19 @@ export const AIChat = () => {
                     {/* Bubble */}
                     <div className={`max-w-[78%] flex flex-col gap-1 ${m.role === 'user' ? 'items-end' : ''}`}>
                       <div
-                        className={`border-2 border-neo-black px-4 py-3 font-mono text-sm leading-relaxed whitespace-pre-wrap
+                        className={`border-2 border-neo-black px-4 py-3 font-mono text-sm leading-relaxed
                           ${m.role === 'user'
-                            ? 'bg-neo-yellow shadow-neo-sm rounded-tl-2xl rounded-bl-2xl rounded-br-2xl'
+                            ? 'bg-neo-yellow shadow-neo-sm rounded-tl-2xl rounded-bl-2xl rounded-br-2xl whitespace-pre-wrap'
                             : 'bg-white shadow-neo-sm rounded-tr-2xl rounded-br-2xl rounded-bl-2xl'}`}
                       >
-                        {/* Typewriter for the latest AI message */}
                         {m.role === 'assistant' && m.id === typingMsgId ? (
                           <TypewriterText
                             text={m.content}
                             speed={18}
                             onComplete={() => setTypingMsgId(null)}
                           />
+                        ) : m.role === 'assistant' ? (
+                          <MarkdownContent>{m.content}</MarkdownContent>
                         ) : (
                           m.content
                         )}

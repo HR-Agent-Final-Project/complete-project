@@ -42,8 +42,8 @@ export const Attendance = () => {
   };
 
   const exportCSV = () => {
-    const headers = ['Employee', 'Check In', 'Check Out', 'Hours', 'Status'];
-    const rows = filtered.map(r => [r.employee_name, r.check_in || '', r.check_out || '', r.hours || '', r.status]);
+    const headers = ['Employee ID', 'Employee Name', 'Check In', 'Check Out', 'Hours', 'Status', 'Check-in Lat', 'Check-in Lng', 'Check-out Lat', 'Check-out Lng'];
+    const rows = filtered.map(r => [r.employee_number || '', r.employee_name, r.check_in || '', r.check_out || '', r.hours || '', r.status, r.latitude || '', r.longitude || '', r.checkout_latitude || '', r.checkout_longitude || '']);
     const csv = [headers, ...rows].map(r => r.join(',')).join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
@@ -54,13 +54,29 @@ export const Attendance = () => {
 
   const columns: Column<AttendanceRecord>[] = [
     {
-      key: 'employee_name', header: 'Employee',
-      render: r => <span className="font-display font-semibold text-sm">{r.employee_name}</span>,
+      key: 'employee_number', header: 'Employee ID',
+      render: r => <span className="font-mono text-xs text-gray-500">{r.employee_number || '—'}</span>,
+    },
+    {
+      key: 'employee_name', header: 'Name',
+      render: r => <span className="font-display font-semibold text-sm">{r.employee_name || '—'}</span>,
     },
     { key: 'check_in', header: 'Check In', render: r => <span className="font-mono text-sm">{r.check_in || '—'}</span> },
     { key: 'check_out', header: 'Check Out', render: r => <span className="font-mono text-sm">{r.check_out || '—'}</span> },
     { key: 'hours', header: 'Hours', render: r => <span className="font-mono text-sm">{r.hours ? `${r.hours}h` : '—'}</span> },
     { key: 'status', header: 'Status', render: r => <StatusBadge status={r.status} /> },
+    {
+      key: 'location', header: 'Check-in GPS',
+      render: r => r.latitude && r.longitude
+        ? <a href={`https://maps.google.com/?q=${r.latitude},${r.longitude}`} target="_blank" rel="noreferrer" className="font-mono text-xs text-blue-600 underline">{r.latitude.toFixed(5)}, {r.longitude.toFixed(5)}</a>
+        : <span className="font-mono text-sm text-gray-400">—</span>,
+    },
+    {
+      key: 'checkout_latitude', header: 'Check-out GPS',
+      render: r => r.checkout_latitude && r.checkout_longitude
+        ? <a href={`https://maps.google.com/?q=${r.checkout_latitude},${r.checkout_longitude}`} target="_blank" rel="noreferrer" className="font-mono text-xs text-blue-600 underline">{r.checkout_latitude.toFixed(5)}, {r.checkout_longitude.toFixed(5)}</a>
+        : <span className="font-mono text-sm text-gray-400">—</span>,
+    },
   ];
 
   return (
