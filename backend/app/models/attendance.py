@@ -90,6 +90,10 @@ class Attendance(Base, TimestampMixin):
     # Location
     location            = Column(String(200), nullable=True)
                           # "Head Office", "Matara Branch", "Remote"
+    latitude            = Column(Float, nullable=True)            # GPS latitude at clock-in
+    longitude           = Column(Float, nullable=True)            # GPS longitude at clock-in
+    checkout_latitude   = Column(Float, nullable=True)            # GPS latitude at clock-out
+    checkout_longitude  = Column(Float, nullable=True)            # GPS longitude at clock-out
 
     # Flags & Notes
     is_absent           = Column(Boolean, default=False, nullable=False)

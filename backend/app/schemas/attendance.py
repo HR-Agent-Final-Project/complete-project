@@ -13,6 +13,8 @@ class ClockInBase64Request(BaseModel):
     employee_id:  int
     image_base64: str          # base64-encoded JPEG (data URL prefix stripped automatically)
     location:     str = "Head Office"
+    latitude:     Optional[float] = None   # GPS latitude from mobile
+    longitude:    Optional[float] = None   # GPS longitude from mobile
 
     @field_validator("image_base64")
     @classmethod
@@ -25,6 +27,8 @@ class ClockInBase64Request(BaseModel):
 class ClockOutBase64Request(BaseModel):
     employee_id:  int
     image_base64: str          # base64-encoded JPEG
+    latitude:     Optional[float] = None   # GPS latitude from mobile
+    longitude:    Optional[float] = None   # GPS longitude from mobile
 
     @field_validator("image_base64")
     @classmethod
