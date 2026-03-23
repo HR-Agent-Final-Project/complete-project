@@ -216,18 +216,26 @@ export const roleApi = {
 export const attendanceApi = {
   list: async (date?: string): Promise<AttendanceRecord[]> => {
     if (USE_MOCK) { await delay(); return mock.mockAttendance; }
-    const res = await apiClient.get('/attendance/all', { params: date ? { date } : {} });
+    const params: Record<string, string> = {};
+    if (date) { params.from_date = date; params.to_date = date; }
+    const res = await apiClient.get('/attendance/all', { params });
     if (!res.data) return [];
     const items: any[] = res.data.records ?? res.data ?? [];
     return items.map((a: any) => ({
       id: a.id,
       employee_id: a.employee_id,
+      employee_number: a.employee_number ?? '',
       employee_name: a.employee_name ?? a.employee?.full_name ?? '',
       date: a.work_date ?? a.date ?? '',
       check_in: a.clock_in,
       check_out: a.clock_out,
-      hours: a.total_hours,
+      hours: a.work_hours,
       status: a.is_absent ? 'absent' : a.is_late ? 'late' : 'present',
+      location: a.location ?? '',
+      latitude: a.latitude ?? null,
+      longitude: a.longitude ?? null,
+      checkout_latitude: a.checkout_latitude ?? null,
+      checkout_longitude: a.checkout_longitude ?? null,
     }));
   },
   mark: async (): Promise<{ message: string }> => {

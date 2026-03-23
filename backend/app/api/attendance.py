@@ -136,9 +136,12 @@ def get_face_path(employee_id: int) -> str:
     return f"{path}/face.jpg"
 
 def record_to_dict(r) -> dict:
+    emp = r.employee
     return {
         "id":                  r.id,
         "employee_id":         r.employee_id,
+        "employee_number":     emp.employee_number if emp else None,
+        "employee_name":       emp.full_name if emp else None,
         "work_date":           str(r.work_date),
         "day":                 r.work_date.strftime("%A"),
         "clock_in":            r.clock_in.strftime("%H:%M:%S") if r.clock_in else None,
@@ -149,6 +152,11 @@ def record_to_dict(r) -> dict:
         "is_late":             r.is_late,
         "late_minutes":        r.late_minutes,
         "is_absent":           r.is_absent,
+        "location":            r.location,
+        "latitude":            r.latitude,
+        "longitude":           r.longitude,
+        "checkout_latitude":   r.checkout_latitude,
+        "checkout_longitude":  r.checkout_longitude,
         "verification_method": r.verification_method,
         "confidence_score":    r.confidence_score,
         "flagged":             r.flagged,
@@ -439,7 +447,8 @@ async def clock_in_base64(
         }
 
     return await _do_clock_in(db, body.employee_id, result["confidence_score"],
-                               "face_recognition", body.location, now, today)
+                               "face_recognition", body.location, now, today,
+                               latitude=body.latitude, longitude=body.longitude)
 
 
 @router.post("/clock-out-base64", summary="Clock out using base64 image — JSON API for mobile")
@@ -453,7 +462,9 @@ async def clock_out_base64(
     Send:
     {
         "employee_id": 5,
-        "image_base64": "data:image/jpeg;base64,/9j/4AAQ..."
+        "image_base64": "data:image/jpeg;base64,/9j/4AAQ...",
+        "latitude": 6.9271,
+        "longitude": 79.8612
     }
     """
     try:
@@ -474,7 +485,8 @@ async def clock_out_base64(
         }
 
     return await _do_clock_out(db, body.employee_id, result["confidence_score"],
-                                "face_recognition", now, today)
+                                "face_recognition", now, today,
+                                latitude=body.latitude, longitude=body.longitude)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -993,7 +1005,7 @@ def _save_scan_photo(employee_id: int, scan_type: str, now: datetime, image_byte
     return path
 
 
-async def _do_clock_in(db, employee_id, confidence, method, location, now, today, image_bytes=None) -> dict:
+async def _do_clock_in(db, employee_id, confidence, method, location, now, today, image_bytes=None, latitude=None, longitude=None) -> dict:
     """
     Smart clock-in / clock-out logic:
       - First scan of the day → CLOCK IN
@@ -1050,6 +1062,10 @@ async def _do_clock_in(db, employee_id, confidence, method, location, now, today
         existing.attendance_type    = att_type
         existing.is_early_departure = early_dep
         existing.confidence_score   = max(existing.confidence_score or 0, confidence)
+        if latitude is not None:
+            existing.checkout_latitude  = latitude
+        if longitude is not None:
+            existing.checkout_longitude = longitude
 
         # Log scan record
         scan = AttendanceScan(
@@ -1107,6 +1123,7 @@ async def _do_clock_in(db, employee_id, confidence, method, location, now, today
         confidence_score=confidence, verification_method=method,
         is_verified=confidence >= 0.7, is_late=late_min > 0,
         late_minutes=late_min, location=location, is_absent=False,
+        latitude=latitude, longitude=longitude,
         flagged=confidence < 0.5,
         flag_reason="Low confidence — possible proxy." if confidence < 0.5 else None,
         notes=notes,
@@ -1136,7 +1153,7 @@ async def _do_clock_in(db, employee_id, confidence, method, location, now, today
     }
 
 
-async def _do_clock_out(db, employee_id, confidence, method, now, today) -> dict:
+async def _do_clock_out(db, employee_id, confidence, method, now, today, latitude=None, longitude=None) -> dict:
     """Shared clock-out logic."""
     from app.models.attendance import Attendance
     from app.models.employee import Employee
@@ -1167,6 +1184,10 @@ async def _do_clock_out(db, employee_id, confidence, method, now, today) -> dict
     record.overtime_hours     = ot_hours
     record.attendance_type    = att_type
     record.is_early_departure = early_dep
+    if latitude is not None:
+        record.checkout_latitude  = latitude
+    if longitude is not None:
+        record.checkout_longitude = longitude
     db.commit()
 
     name = employee.first_name if employee else "Employee"

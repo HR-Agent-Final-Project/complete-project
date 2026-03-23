@@ -62,12 +62,18 @@ export type AttendanceStatus = 'present' | 'absent' | 'late' | 'half_day';
 export interface AttendanceRecord {
   id: number;
   employee_id: number;
+  employee_number?: string;
   employee_name: string;
   date: string;
   check_in?: string;
   check_out?: string;
   hours?: number;
   status: AttendanceStatus;
+  location?: string;
+  latitude?: number;
+  longitude?: number;
+  checkout_latitude?: number;
+  checkout_longitude?: number;
 }
 
 export interface AttendanceSummary {
