@@ -126,7 +126,8 @@ def _build_agent(employee_id: int, db: Session):
                 ],
             })
         except Exception as e:
-            return json.dumps({"found": False, "error": str(e),
+            logger.error("[search_hr_policies] tool error: %s", e)
+            return json.dumps({"found": False, "error": "Policy search unavailable.",
                                "message": "Policy search unavailable. Please check ChromaDB."})
 
     # ── Tool 2: Company Handbook RAG ─────────────────────────────────────────
@@ -162,7 +163,8 @@ def _build_agent(employee_id: int, db: Session):
                              for i, d in enumerate(docs)],
             })
         except Exception as e:
-            return json.dumps({"found": False, "error": str(e)})
+            logger.error("[search_company_handbook] tool error: %s", e)
+            return json.dumps({"found": False, "error": "Handbook search unavailable."})
 
     # ── Tool 3: Live Leave Balances ───────────────────────────────────────────
 
@@ -196,7 +198,8 @@ def _build_agent(employee_id: int, db: Session):
                 ],
             })
         except Exception as e:
-            return json.dumps({"found": False, "error": str(e)})
+            logger.error("[get_my_leave_balances] tool error: %s", e)
+            return json.dumps({"found": False, "error": "Leave balance lookup failed."})
 
     # ── Tool 4: Live Attendance Stats ─────────────────────────────────────────
 
@@ -230,7 +233,8 @@ def _build_agent(employee_id: int, db: Session):
                 "attendance_percent": pct,
             })
         except Exception as e:
-            return json.dumps({"error": str(e)})
+            logger.error("[get_my_attendance] tool error: %s", e)
+            return json.dumps({"error": "Attendance lookup failed."})
 
     # ── Tool 5: Performance Summary ───────────────────────────────────────────
 
@@ -262,7 +266,8 @@ def _build_agent(employee_id: int, db: Session):
                 "is_promotion_eligible": review.is_promotion_eligible,
             })
         except Exception as e:
-            return json.dumps({"error": str(e)})
+            logger.error("[get_my_performance] tool error: %s", e)
+            return json.dumps({"error": "Performance lookup failed."})
 
     # ── Tool 6: Apply Leave ─────────────────────────────────────────────────
 
@@ -394,7 +399,7 @@ def _build_agent(employee_id: int, db: Session):
 
         except Exception as e:
             logger.error("[Chat] apply_leave_for_me error: %s", e)
-            return json.dumps({"success": False, "error": str(e)})
+            return json.dumps({"success": False, "error": "Leave application failed. Please try again."})
 
     # ── Tool 7: Cancel Leave ─────────────────────────────────────────────────
 
@@ -448,7 +453,7 @@ def _build_agent(employee_id: int, db: Session):
 
         except Exception as e:
             logger.error("[Chat] cancel_my_leave error: %s", e)
-            return json.dumps({"success": False, "error": str(e)})
+            return json.dumps({"success": False, "error": "Leave cancellation failed. Please try again."})
 
     # ── Tool 8: List My Leave Requests ────────────────────────────────────────
 
@@ -505,7 +510,7 @@ def _build_agent(employee_id: int, db: Session):
 
         except Exception as e:
             logger.error("[Chat] get_my_leave_requests error: %s", e)
-            return json.dumps({"found": False, "error": str(e)})
+            return json.dumps({"found": False, "error": "Leave request lookup failed."})
 
     # ── System Prompt ────────────────────────────────────────────────────────
 
@@ -627,7 +632,7 @@ def _run_agent(
         import traceback
         logger.error("[Chat] Agent error for employee %s: %s\n%s", employee_id, e, traceback.format_exc())
         return (
-            f"Sorry, I encountered an error: {str(e)[:200]}. Please try again or contact HR directly.",
+            "Sorry, I encountered an unexpected error. Please try again or contact HR directly.",
             [],
         )
 
@@ -827,7 +832,8 @@ def knowledge_status():
                 result[col] = {"loaded": False, "chunks": 0}
         return {"status": "ok", "collections": result}
     except Exception as e:
-        return {"status": "unavailable", "error": str(e)}
+        logger.error("[chroma_status] ChromaDB unavailable: %s", e)
+        return {"status": "unavailable", "error": "ChromaDB is unavailable."}
 
 
 # ── Internal helper ───────────────────────────────────────────────────────────

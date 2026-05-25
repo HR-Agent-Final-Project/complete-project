@@ -30,6 +30,10 @@ class Settings(BaseSettings):
     FIREBASE_PROJECT_ID: Optional[str] = None
     FIREBASE_CREDENTIALS_PATH: str = "./firebase-credentials.json"
 
+    # ── Redis  (format: redis://:password@host:port  — password required in production)
+    # REQUIRED — must match REDIS_PASSWORD set in docker-compose / .env
+    REDIS_URL: str
+
     # ── Server
     PORT: int = 8080                                     # uvicorn listen port
     BACKEND_URL: str = "http://localhost:8080"           # used in email approval links
@@ -48,6 +52,22 @@ class Settings(BaseSettings):
         "https://stately-snickerdoodle-ed0f15.netlify.app",
         "https://prismatic-taiyaki-af2173.netlify.app",
     ]
+    # Hosts the API is permitted to serve — rejects Host-header injection attacks.
+    # In production set this to your actual domain, e.g. ["api.yourcompany.com"].
+    ALLOWED_HOSTS: List[str] = ["localhost", "127.0.0.1"]
+
+    # IPs of trusted reverse proxies whose X-Real-IP / X-Forwarded-For headers
+    # are accepted as the genuine client IP.  Any other source is treated as
+    # a direct connection — proxy headers from it are ignored to prevent spoofing.
+    # In production this is typically ["127.0.0.1"] (nginx co-located on same host).
+    TRUSTED_PROXY_IPS: List[str] = ["127.0.0.1"]
+
+    # ── Biometric encryption ──────────────────────────────────────────────────
+    # REQUIRED — generate with: python -c "import secrets; print(secrets.token_hex(32))"
+    # Encrypts face embeddings at rest.  Must be separate from SECRET_KEY so
+    # a JWT compromise does not also expose biometric data.
+    BIOMETRIC_ENCRYPTION_KEY: str
+
     RATE_LIMIT_PER_MINUTE: int = 60
     LOGIN_RATE_LIMIT: int = 5
 

@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { useNotifications } from '../context/NotificationContext';
 import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts';
@@ -35,11 +34,9 @@ const StatCard = ({ label, value, sub, color = 'bg-white', icon }: {
 // ─── Employee Dashboard ───────────────────────────────────────────────────────
 const EmployeeDashboard = () => {
   const { user } = useAuth();
-  const { addNotification } = useNotifications();
   const [stats, setStats] = useState<EmployeeDashboardStats | null>(null);
   const [leaves, setLeaves] = useState<LeaveRequest[]>([]);
   const [loading, setLoading] = useState(true);
-  const [marking, setMarking] = useState(false);
   const navigate = useNavigate();
 
   const hour = new Date().getHours();
@@ -53,16 +50,6 @@ const EmployeeDashboard = () => {
       })
       .finally(() => setLoading(false));
   }, []);
-
-  const markAttendance = async () => {
-    setMarking(true);
-    try {
-      await new Promise(r => setTimeout(r, 600));
-      addNotification('success', 'Attendance Marked', 'Your attendance for today has been recorded.');
-    } finally {
-      setMarking(false);
-    }
-  };
 
   return (
     <div className="flex flex-col gap-6">

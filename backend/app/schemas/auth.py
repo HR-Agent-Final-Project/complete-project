@@ -198,3 +198,7 @@ class TokenResponse(BaseModel):
 
 class MessageResponse(BaseModel):
     message: str
+
+
+class LogoutRequest(BaseModel):
+    refresh_token: Optional[str] = None   # If provided, refresh token is also revoked

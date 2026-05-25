@@ -4,10 +4,12 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
 from app.core.config import settings
+from app.core.security_headers import SecurityHeadersMiddleware
 
 # ── Logging configuration ─────────────────────────────────────────────────────
 logging.basicConfig(
@@ -138,29 +140,54 @@ app = FastAPI(
     title=settings.APP_NAME,
     version=settings.APP_VERSION,
     description="AI-powered HR management system.",
-    docs_url="/docs",
-    swagger_ui_parameters={"persistAuthorization": True},
+    # All API documentation endpoints are disabled in production (DEBUG=False).
+    # openapi_url=None also kills /docs and /redoc even if set, so all three
+    # are gated together to prevent partial exposure.
+    openapi_url="/openapi.json" if settings.DEBUG else None,
+    docs_url="/docs"            if settings.DEBUG else None,
+    redoc_url="/redoc"          if settings.DEBUG else None,
+    # persistAuthorization stores tokens in localStorage — dev convenience only.
+    swagger_ui_parameters={"persistAuthorization": True} if settings.DEBUG else None,
     lifespan=lifespan,
     redirect_slashes=False,
 )
 
+# ── Middleware stack ──────────────────────────────────────────────────────────
+# Starlette applies middleware in LIFO (last-added = outermost = runs first).
+# Execution order for incoming requests:
+#   TrustedHostMiddleware  →  SecurityHeadersMiddleware  →  CORSMiddleware  →  route
+
+# 1. CORS — innermost; only reached after host + headers checks pass
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=settings.ALLOWED_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
+    allow_headers=["Authorization", "Content-Type"],
+)
+
+# 2. Security headers — applied to every response before it leaves the server
+app.add_middleware(SecurityHeadersMiddleware, debug=settings.DEBUG)
+
+# 3. Trusted host — outermost; rejects requests with invalid Host headers
+#    before any business logic or auth runs (prevents DNS-rebinding attacks).
+#    Set ALLOWED_HOSTS in .env for production, e.g. ALLOWED_HOSTS=["api.yourcompany.com"]
+app.add_middleware(
+    TrustedHostMiddleware,
+    allowed_hosts=settings.ALLOWED_HOSTS,
 )
 
 
 @app.get("/", tags=["Health"])
 def root():
-    return {
+    response = {
         "app":     settings.APP_NAME,
         "version": settings.APP_VERSION,
         "status":  "running",
-        "docs":    "/docs",
     }
+    if settings.DEBUG:
+        response["docs"] = "/docs"
+    return response
 
 
 @app.get("/health", tags=["Health"])
@@ -202,11 +229,14 @@ app.include_router(dashboard_router, prefix="/api/dashboard", tags=["Dashboard"]
 from app.api.recruitment import router as recruitment_router
 app.include_router(recruitment_router, prefix="/api/recruitment", tags=["Recruitment"])
 
-# ── Static files & Chat UI ────────────────────────────────────────────────────
-_static_dir = _os.path.join(_os.path.dirname(__file__), "static")
+# ── Protected uploads — replaces the unauthenticated StaticFiles mount ────────
+from app.api.uploads import router as uploads_router
 _uploads_dir = _os.path.join(_os.path.dirname(__file__), "..", "uploads")
 _os.makedirs(_uploads_dir, exist_ok=True)
-app.mount("/uploads", StaticFiles(directory=_uploads_dir), name="uploads")
+app.include_router(uploads_router, prefix="/uploads", tags=["Uploads"])
+
+# ── Static files & Chat UI ────────────────────────────────────────────────────
+_static_dir = _os.path.join(_os.path.dirname(__file__), "static")
 app.mount("/static", StaticFiles(directory=_static_dir), name="static")
 
 @app.get("/chat", tags=["AI Chat"], include_in_schema=False)

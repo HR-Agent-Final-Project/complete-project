@@ -7,6 +7,7 @@ Each tool returns JSON — no decisions, just raw match/liveness data.
 
 import json
 import base64
+import logging
 import os
 import tempfile
 from pathlib import Path
@@ -15,6 +16,8 @@ from typing import Optional
 
 from langchain.tools import tool
 from config.settings import settings
+
+logger = logging.getLogger(__name__)
 
 
 def _decode_image(image_base64: str) -> str:
@@ -56,7 +59,8 @@ def check_liveness(image_base64: str) -> str:
         # DeepFace not installed — mock for development
         return json.dumps({"passed": True, "score": 0.95, "message": "Mock liveness passed."})
     except Exception as e:
-        return json.dumps({"passed": False, "message": str(e)})
+        logger.error("[check_liveness] tool error: %s", e)
+        return json.dumps({"passed": False, "message": "Liveness check failed. Please try again."})
 
 
 @tool
@@ -92,7 +96,8 @@ def match_employee_face(image_base64: str, employee_id: str) -> str:
     except ImportError:
         return json.dumps({"matched": True, "confidence": 0.92, "distance": 0.08, "model": "mock"})
     except Exception as e:
-        return json.dumps({"matched": False, "confidence": 0.0, "message": str(e)})
+        logger.error("[match_employee_face] tool error for employee #%s: %s", employee_id, e)
+        return json.dumps({"matched": False, "confidence": 0.0, "message": "Face match failed. Please try again."})
 
 
 @tool
@@ -141,7 +146,8 @@ def identify_unknown_face(image_base64: str) -> str:
         return json.dumps({"identified": False, "is_registered": False,
                            "message": "DeepFace not installed — mock mode."})
     except Exception as e:
-        return json.dumps({"identified": False, "message": str(e)})
+        logger.error("[identify_unknown_face] tool error: %s", e)
+        return json.dumps({"identified": False, "message": "Face identification failed. Please try again."})
 
 
 @tool
@@ -159,4 +165,5 @@ def save_employee_face(employee_id: str, image_base64: str) -> str:
             f.write(img_data)
         return json.dumps({"success": True, "path": str(save_path)})
     except Exception as e:
-        return json.dumps({"success": False, "message": str(e)})
+        logger.error("[save_employee_face] tool error for employee #%s: %s", employee_id, e)
+        return json.dumps({"success": False, "message": "Face save failed. Please try again."})

@@ -10,11 +10,14 @@ Install requirements:
   uv add deepface opencv-python-headless tf-keras numpy pillow
 """
 
+import logging
 import os
 import json
 import numpy as np
 from pathlib import Path
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 # Face storage path
 FACE_DB_PATH = Path("uploads/faces")
@@ -89,7 +92,8 @@ def register_face(employee_id: int, image_bytes: bytes) -> dict:
         }
 
     except Exception as e:
-        return {"success": False, "message": f"Face registration failed: {str(e)}"}
+        logger.error("[register_face] Failed for employee #%s: %s", employee_id, e)
+        return {"success": False, "message": "Face registration failed. Please try again."}
 
 
 def verify_face(employee_id: int, image_bytes: bytes) -> dict:
@@ -133,10 +137,11 @@ def verify_face(employee_id: int, image_bytes: bytes) -> dict:
         except Exception as e:
             if os.path.exists(temp_path):
                 os.remove(temp_path)
+            logger.error("[verify_face] Detection failed for employee #%s: %s", employee_id, e)
             return {
                 "verified":         False,
                 "confidence_score": 0.0,
-                "message":          f"Face detection failed: {str(e)}",
+                "message":          "Face detection failed. Ensure the image is clear and try again.",
             }
 
         if os.path.exists(temp_path):
@@ -167,10 +172,11 @@ def verify_face(employee_id: int, image_bytes: bytes) -> dict:
         }
 
     except Exception as e:
+        logger.error("[verify_face] Unexpected error for employee #%s: %s", employee_id, e)
         return {
             "verified":         False,
             "confidence_score": 0.0,
-            "message":          f"Verification error: {str(e)}",
+            "message":          "Face verification failed. Please try again.",
         }
 
 

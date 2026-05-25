@@ -1,5 +1,6 @@
 import logging
 from datetime import datetime
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordRequestForm
@@ -7,10 +8,14 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.config import settings
+
 from app.core.security import (
-    verify_password, create_access_token, create_approval_token,
+    verify_password, create_access_token, create_approval_token, decode_approval_token,
     create_refresh_token, decode_token,
-    get_current_employee, require_role, hash_password
+    create_password_reset_token, decode_password_reset_token,
+    blacklist_token, is_token_blacklisted,
+    get_current_employee, require_role, hash_password, oauth2_scheme,
+    _DUMMY_HASH,
 )
 
 logger = logging.getLogger(__name__)
@@ -20,7 +25,7 @@ from app.schemas.auth import (
     TokenResponse, MessageResponse,
     EmployeeRegisterRequest, EmployeeRegisterResponse,
     SetPasswordRequest, ForgotPasswordRequest, ResetPasswordRequest,
-    SelfRegisterRequest, SelfRegisterResponse,
+    SelfRegisterRequest, SelfRegisterResponse, LogoutRequest,
 )
 from app.services.employee_service import (
     generate_employee_number,
@@ -31,8 +36,12 @@ from app.services.employee_service import (
 router = APIRouter()
 
 # Add this SEPARATE login route for Swagger OAuth2 form
+from app.core.rate_limiter import get_real_ip, check_ip_blocked, record_failed, record_success
+
+
 @router.post("/token", include_in_schema=False)
 def login_for_swagger(
+    request: Request,
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db)
 ):
@@ -43,6 +52,9 @@ def login_for_swagger(
     """
     from app.models.employee import Employee
 
+    client_ip = get_real_ip(request)
+    check_ip_blocked(client_ip)
+
     from sqlalchemy import or_
     employee = db.query(Employee).filter(
         or_(
@@ -52,13 +64,19 @@ def login_for_swagger(
         Employee.is_active == True
     ).first()
 
-    if not employee or not verify_password(form_data.password, employee.hashed_password):
+    # Always run bcrypt to prevent timing-based account enumeration.
+    candidate_hash = employee.hashed_password if employee else _DUMMY_HASH
+    password_valid = verify_password(form_data.password, candidate_hash)
+
+    if not password_valid or employee is None:
+        record_failed(client_ip)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password.",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+    record_success(client_ip)
     access_token = create_access_token({
         "sub":   str(employee.id),
         "email": employee.personal_email,
@@ -69,43 +87,6 @@ def login_for_swagger(
         "access_token": access_token,
         "token_type":   "bearer"
     }
-
-# ── Tracks failed login attempts per IP
-import time
-_failed_attempts: dict = {}
-_blocked_ips: set = set()
-MAX_ATTEMPTS = 5
-BLOCK_SECONDS = 900  # 15 minutes
-
-
-def _check_ip_blocked(ip: str):
-    if ip in _blocked_ips:
-        data = _failed_attempts.get(ip, {})
-        blocked_at = data.get("blocked_at", 0)
-        if time.time() - blocked_at < BLOCK_SECONDS:
-            remaining = int(BLOCK_SECONDS - (time.time() - blocked_at))
-            raise HTTPException(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail=f"Too many failed attempts. Try again in {remaining} seconds."
-            )
-        else:
-            _blocked_ips.discard(ip)
-            _failed_attempts.pop(ip, None)
-
-
-def _record_failed(ip: str):
-    if ip not in _failed_attempts:
-        _failed_attempts[ip] = {"count": 0}
-    _failed_attempts[ip]["count"] += 1
-    if _failed_attempts[ip]["count"] >= MAX_ATTEMPTS:
-        _blocked_ips.add(ip)
-        _failed_attempts[ip]["blocked_at"] = time.time()
-        logger.warning("IP blocked due to repeated failed logins: %s", ip)
-
-
-def _record_success(ip: str):
-    _failed_attempts.pop(ip, None)
-    _blocked_ips.discard(ip)
 
 
 def _build_token_response(employee, must_change_password: bool = False) -> TokenResponse:
@@ -334,12 +315,8 @@ def forgot_password(
     if not employee:
         return {"message": "If your email is registered, you will receive a reset link."}
 
-    # Generate reset token (valid 30 minutes)
-    reset_token = create_access_token({
-        "sub": str(employee.id),
-        "type": "password_reset",
-        "email": employee.personal_email,
-    })
+    # Generate reset token (valid 30 minutes, signed with a separate secret)
+    reset_token = create_password_reset_token(employee.id)
 
     # TODO: Implement email delivery before enabling in production.
     # reset_link = f"{settings.FRONTEND_URL}/reset-password?token={reset_token}"
@@ -364,20 +341,8 @@ def reset_password(
     """
     from app.models.employee import Employee
 
-    # Decode reset token
-    try:
-        payload = decode_token(body.reset_token)
-    except Exception:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid or expired reset token."
-        )
-
-    if payload.get("type") != "password_reset":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid reset token."
-        )
+    # Decode reset token — raises 400 if invalid, expired, or wrong secret
+    payload = decode_password_reset_token(body.reset_token)
 
     employee = db.query(Employee).filter(
         Employee.id == int(payload["sub"]),
@@ -386,8 +351,8 @@ def reset_password(
 
     if not employee:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Employee not found."
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired password reset link."
         )
 
     # Set new password
@@ -427,8 +392,8 @@ def self_register(body: SelfRegisterRequest, db: Session = Depends(get_db)):
             detail=f"Email {body.personal_email} is already registered."
         )
 
-    # Find matching role by access_level
-    role_level = 4 if body.requested_role == "hr_admin" else 4
+    # Find matching role by access_level (hr_admin = 4, management = 3)
+    role_level = 4 if body.requested_role == "hr_admin" else 3
     role = db.query(Role).filter(Role.access_level == role_level).first()
 
     # Generate employee number
@@ -447,8 +412,8 @@ def self_register(body: SelfRegisterRequest, db: Session = Depends(get_db)):
         role_id         = role.id if role else None,
         employment_type = "full_time",
         hashed_password = hash_password(body.password),
-        status          = EmployeeStatus.ACTIVE,
-        is_active       = True,   # Auto-activated for HR/Manager registrations
+        status          = EmployeeStatus.INACTIVE,
+        is_active       = False,  # Account is inactive until an HR approver clicks the email link
         hire_date       = date.today(),
         language_pref   = "en",
     )
@@ -461,7 +426,7 @@ def self_register(body: SelfRegisterRequest, db: Session = Depends(get_db)):
         logger.error("[self_register] DB error: %s", db_err)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Could not create account: {str(db_err)}"
+            detail="Could not create account. Please try again later."
         )
 
     # Initialize leave balances (non-critical — ignore failures)
@@ -501,7 +466,7 @@ def self_register(body: SelfRegisterRequest, db: Session = Depends(get_db)):
     if sent:
         logger.info("Approval email sent to %s for new user %s", APPROVAL_EMAIL, body.personal_email)
     else:
-        logger.warning("Could not send approval email (SMTP not configured). Token: %s", approval_token)
+        logger.warning("Could not send approval email (SMTP not configured) for user %s.", body.personal_email)
 
     return SelfRegisterResponse(
         message=(
@@ -549,17 +514,13 @@ def approve_registration(token: str, db: Session = Depends(get_db)):
 </div></body></html>"""
         return HTMLResponse(content=html)
 
-    # Decode token
+    # Decode token — uses a separate secret; access tokens cannot pass this check
     try:
-        payload = decode_token(token)
-    except Exception:
+        payload = decode_approval_token(token)
+    except ValueError as exc:
+        logger.warning("[approve_registration] Invalid approval token: %s", exc)
         return _html("Error", "Invalid or Expired Link",
-                     "This approval link is invalid or has expired. Please ask the user to register again.",
-                     color="#FF6B6B")
-
-    if payload.get("type") != "registration_approval":
-        return _html("Error", "Invalid Link",
-                     "This link is not a valid registration approval link.",
+                     "This link is invalid or has expired. Please ask the user to register again.",
                      color="#FF6B6B")
 
     employee_id = int(payload["sub"])
@@ -624,8 +585,8 @@ def login(
 ):
     from app.models.employee import Employee
 
-    client_ip = request.client.host
-    _check_ip_blocked(client_ip)
+    client_ip = get_real_ip(request)
+    check_ip_blocked(client_ip)
 
     # Find employee by Employee ID (e.g. IT0001) or personal email
     from sqlalchemy import or_
@@ -636,22 +597,30 @@ def login(
         )
     ).first()
 
-    # Pending approval check (better UX than a generic 401)
-    if employee and not employee.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Your account is pending approval. Please wait for HR to approve your registration."
-        )
+    # Always run bcrypt regardless of whether the account exists.
+    # Skipping it for unknown identifiers produces a measurably faster response
+    # that attackers can use to enumerate valid accounts via timing.
+    candidate_hash = employee.hashed_password if employee else _DUMMY_HASH
+    password_valid = verify_password(body.password, candidate_hash)
 
-    # Verify credentials
-    if not employee or not verify_password(body.password, employee.hashed_password):
-        _record_failed(client_ip)
+    if not password_valid or employee is None:
+        record_failed(client_ip)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid Employee ID/email or password."
         )
 
-    _record_success(client_ip)
+    # Credentials are correct — now check account state.
+    # This branch is only reachable with a valid password, so telling the
+    # legitimate user their account is pending does not leak account existence
+    # to an attacker (who would have been stopped at the password check above).
+    if not employee.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Your account is pending approval. Please wait for HR to approve your registration."
+        )
+
+    record_success(client_ip)
 
     # Detect first-ever login (temp password not yet changed)
     is_first_login = employee.last_login is None
@@ -688,15 +657,15 @@ def firebase_google_login(
     from app.models.employee import Employee
     from app.core.firebase import verify_firebase_token
 
-    client_ip = request.client.host
-    _check_ip_blocked(client_ip)
+    client_ip = get_real_ip(request)
+    check_ip_blocked(client_ip)
 
     # Verify Firebase token
     try:
         firebase_user = verify_firebase_token(body.id_token)
     except Exception:
         # Do not expose internal Firebase SDK error details to the client.
-        _record_failed(client_ip)
+        record_failed(client_ip)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Google authentication failed. Please try again."
@@ -734,7 +703,7 @@ def firebase_google_login(
     employee.last_login = datetime.utcnow()
     db.commit()
 
-    _record_success(client_ip)
+    record_success(client_ip)
     return _build_token_response(employee)
 
 
@@ -755,6 +724,13 @@ def refresh(body: RefreshRequest, db: Session = Depends(get_db)):
             detail="Invalid refresh token."
         )
 
+    # Reject revoked refresh tokens (logged-out sessions)
+    if is_token_blacklisted(payload.get("jti")):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Refresh token has been revoked."
+        )
+
     employee = db.query(Employee).filter(
         Employee.id == int(payload["sub"]),
         Employee.is_active == True
@@ -763,7 +739,7 @@ def refresh(body: RefreshRequest, db: Session = Depends(get_db)):
     if not employee:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Employee not found."
+            detail="Session expired or invalid. Please log in again."
         )
 
     return _build_token_response(employee)
@@ -799,7 +775,35 @@ def get_me(current_employee=Depends(get_current_employee)):
     response_model=MessageResponse,
     summary="Logout current employee",
 )
-def logout(current_employee=Depends(get_current_employee)):
+def logout(
+    body: Optional[LogoutRequest] = None,
+    token: str = Depends(oauth2_scheme),
+    current_employee=Depends(get_current_employee),
+):
+    """
+    Revokes the current access token and the refresh token (if supplied).
+    Both JTIs are stored in Redis with a TTL equal to their remaining lifetime
+    so they self-clean without a background job.
+    """
+    # Revoke access token
+    access_payload = decode_token(token)
+    jti = access_payload.get("jti")
+    exp = access_payload.get("exp", 0)
+    if jti:
+        blacklist_token(jti, exp)
+
+    # Revoke refresh token if the client sent it
+    if body and body.refresh_token:
+        try:
+            refresh_payload = decode_token(body.refresh_token)
+            if refresh_payload.get("type") == "refresh":
+                r_jti = refresh_payload.get("jti")
+                r_exp = refresh_payload.get("exp", 0)
+                if r_jti:
+                    blacklist_token(r_jti, r_exp)
+        except Exception:
+            pass  # Malformed refresh token — ignore, access token already revoked
+
     return {
         "message": f"Goodbye {current_employee.first_name}! Logged out successfully."
     }
