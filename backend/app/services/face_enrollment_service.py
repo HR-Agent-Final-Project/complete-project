@@ -11,6 +11,7 @@ Flow:
 """
 
 import base64
+import logging
 import os
 import tempfile
 from datetime import datetime
@@ -18,6 +19,8 @@ from pathlib import Path
 
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
+
+logger = logging.getLogger(__name__)
 
 
 FACE_UPLOADS_DIR = "uploads/faces"
@@ -103,9 +106,10 @@ def enroll_face(employee_id: int, image_base64: str, db: Session) -> dict:
         embedding = [0.0] * 512     # mock vector for development
     except Exception as e:
         _cleanup(img_path)
+        logger.error("[enroll_face] Embedding extraction failed for employee #%s: %s", employee_id, e)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Face embedding extraction failed: {str(e)}"
+            detail="Face embedding extraction failed. Ensure the image is clear and try again."
         )
 
     # ── Step 3: Save face photo to disk ───────────────────────────────────────

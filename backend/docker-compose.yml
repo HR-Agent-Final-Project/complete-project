@@ -1,16 +1,80 @@
 services:
 
+  # ── FastAPI application ───────────────────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: aihr_api
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:8080"   # localhost only — nginx or a reverse proxy fronts this
+    environment:
+      # Application
+      DEBUG: "false"
+      PORT: "8080"
+      BACKEND_URL: ${BACKEND_URL}
+      FRONTEND_URL: ${FRONTEND_URL}
+      # Database
+      DATABASE_URL: ${DATABASE_URL}
+      # Auth
+      SECRET_KEY: ${SECRET_KEY:?SECRET_KEY is required}
+      ALGORITHM: ${ALGORITHM:-HS256}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-60}
+      REFRESH_TOKEN_EXPIRE_DAYS: ${REFRESH_TOKEN_EXPIRE_DAYS:-7}
+      # Redis
+      REDIS_URL: ${REDIS_URL:?REDIS_URL is required}
+      # OpenAI
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      # Email
+      GMAIL_USER: ${GMAIL_USER}
+      GMAIL_APP_PASSWORD: ${GMAIL_APP_PASSWORD}
+      # Firebase
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID}
+      FIREBASE_CREDENTIALS_PATH: /app/firebase-credentials.json
+      # Google OAuth
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
+      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI}
+    volumes:
+      # Uploads persist across container restarts
+      - uploads_data:/app/uploads
+      # Firebase service account — read-only, never baked into the image
+      - ./firebase-credentials.json:/app/firebase-credentials.json:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2G
+        reservations:
+          cpus: "0.5"
+          memory: 512M
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+
   # ── PostgreSQL (local database) ───────────────────────────────────────────
   postgres:
     image: postgres:17-alpine
     container_name: aihr_postgres
     restart: unless-stopped
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: hr_manager
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:-hr_manager}
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"   # localhost only — not reachable from the internet
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -31,7 +95,7 @@ services:
       PERSIST_DIRECTORY: /chroma/data
       ANONYMIZED_TELEMETRY: "FALSE"
     ports:
-      - "8100:8000"
+      - "127.0.0.1:8100:8000"   # localhost only — not reachable from the internet
     volumes:
       - chroma_data:/chroma/data
     healthcheck:
@@ -40,23 +104,28 @@ services:
       timeout: 5s
       retries: 5
 
-  # ── Redis (LangGraph MemorySaver state + caching) ─────────────────────────
+  # ── Redis (LangGraph MemorySaver state + rate-limiting) ───────────────────
   redis:
     image: redis:7-alpine
     container_name: aihr_redis
     restart: unless-stopped
+    command: redis-server --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"   # localhost only — not reachable from the internet
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
 
-  # ── pgAdmin (optional — browse your Neon DB visually) ─────────────────────
+  # ── pgAdmin (dev tool — never runs in production) ─────────────────────────
+  # Start manually when needed: docker compose --profile dev up pgadmin
   pgadmin:
+    profiles: ["dev"]
     image: dpage/pgadmin4:latest
     container_name: aihr_pgadmin
     restart: unless-stopped
@@ -64,9 +133,10 @@ services:
       PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@admin.com}
       PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:?PGADMIN_PASSWORD is required}
     ports:
-      - "5050:80"
+      - "127.0.0.1:5050:80"     # localhost only, dev profile only
 
 volumes:
   postgres_data:
   chroma_data:
   redis_data:
+  uploads_data:

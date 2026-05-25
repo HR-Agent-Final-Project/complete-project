@@ -223,8 +223,8 @@ async def register_face(
 
         if result:
             embedding = result[0]["embedding"]
-            # Store embedding as JSON string in employee record
-            employee.face_embedding = json.dumps(embedding)
+            # EncryptedJSON TypeDecorator handles serialisation + encryption
+            employee.face_embedding = embedding
             employee.face_registered = True
             db.commit()
             embedding_stored = True
@@ -236,11 +236,12 @@ async def register_face(
 
     except Exception as e:
         # Face not clearly visible but save image anyway
+        logger.warning("[register_face] Embedding extraction failed for employee #%s: %s", employee_id, e)
         employee.face_registered = True
         db.commit()
         return {
             "success":    True,
-            "message":    f"Face image saved but embedding extraction failed: {str(e)}. Install deepface.",
+            "message":    "Face image saved but embedding extraction failed. Ensure DeepFace is installed.",
             "employee":   employee.full_name,
             "face_path":  face_path,
         }
@@ -882,8 +883,8 @@ async def _verify_face_bytes(employee_id: int, image_bytes: bytes) -> dict:
             try:
                 emp = db.query(Employee).filter(Employee.id == employee_id).first()
                 if emp and emp.face_embedding:
-                    raw = emp.face_embedding
-                    stored_emb = raw if isinstance(raw, list) else json.loads(raw)
+                    # EncryptedJSON decrypts transparently — always a list
+                    stored_emb = emp.face_embedding
                     _embedding_cache[employee_id] = stored_emb
             finally:
                 db.close()
@@ -930,8 +931,8 @@ async def _verify_face_bytes(employee_id: int, image_bytes: bytes) -> dict:
                 "message": "DeepFace not installed — manual verification mode."}
 
     except Exception as e:
-        logger.error(f"Face verify error emp#{employee_id}: {e}")
-        return {"verified": False, "confidence_score": 0.0, "message": str(e)}
+        logger.error("Face verify error emp#%s: %s", employee_id, e)
+        return {"verified": False, "confidence_score": 0.0, "message": "Face verification failed. Please try again."}
 
 
 async def _identify_from_all_faces(image_bytes: bytes, employees: list) -> tuple:
@@ -965,8 +966,8 @@ async def _identify_from_all_faces(image_bytes: bytes, employees: list) -> tuple
                 try:
                     e = db.query(Employee).filter(Employee.id == emp.id).first()
                     if e and e.face_embedding:
-                        raw = e.face_embedding
-                        stored_emb = raw if isinstance(raw, list) else json.loads(raw)
+                        # EncryptedJSON decrypts transparently — always a list
+                        stored_emb = e.face_embedding
                         _embedding_cache[emp.id] = stored_emb
                 finally:
                     db.close()

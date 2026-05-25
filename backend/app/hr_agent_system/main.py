@@ -7,9 +7,12 @@ Start: uv run uvicorn main:app --reload --port 8001
 Docs:  http://localhost:8001/docs
 """
 
+import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
+
+logger = logging.getLogger(__name__)
 
 from config.settings import settings
 from api.middleware import setup_middleware
@@ -98,7 +101,8 @@ async def visualize_graph():
         mermaid = get_hr_graph().get_graph().draw_mermaid()
         return {"mermaid": mermaid}
     except Exception as e:
-        return JSONResponse(status_code=500, content={"error": str(e)})
+        logger.error("[visualize_graph] Failed to generate graph diagram: %s", e)
+        return JSONResponse(status_code=500, content={"error": "Failed to generate graph diagram."})
 
 
 @app.get("/api/performance/{employee_id}", tags=["Performance"])

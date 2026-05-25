@@ -6,7 +6,7 @@ import 'package:path/path.dart' show join;
 import 'package:path_provider/path_provider.dart';
 import 'package:http/http.dart' as http;
 import 'package:geolocator/geolocator.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
+import '../config/app_config.dart';
 
 // ─── Neobrutalism design tokens ────────────────────────────────────────────
 const _kYellow = Color(0xFFFFEE32);
@@ -234,7 +234,7 @@ class _CameraScreenState extends State<CameraScreen> {
   Future<void> _sendImageToBackendWeb(XFile imageFile) async {
     try {
       final url = Uri.parse(
-          dotenv.env['FACE_RECOGNITION_WEB_URL'] ?? 'http://localhost:8080/api/attendance/clock-in-face');
+          AppConfig.webUrl);
       var request = http.MultipartRequest('POST', url);
       final bytes = await imageFile.readAsBytes();
       request.files.add(http.MultipartFile.fromBytes(
@@ -274,8 +274,7 @@ class _CameraScreenState extends State<CameraScreen> {
   Future<void> _sendImageToBackend(String imagePath) async {
     try {
       final url = Uri.parse(
-          dotenv.env['FACE_RECOGNITION_API_URL'] ?? 'http://10.0.2.2:8080/api/attendance/clock-in-face');
-      debugPrint('Sending to: $url');
+          AppConfig.apiUrl);
       var request = http.MultipartRequest('POST', url);
       request.files.add(await http.MultipartFile.fromPath('image', imagePath));
       if (_currentPosition != null) {

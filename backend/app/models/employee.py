@@ -13,10 +13,11 @@ Fields explained:
 import enum
 from sqlalchemy import (
     Column, Integer, String, Boolean, Text,
-    ForeignKey, Date, DateTime, Numeric, Enum, JSON
+    ForeignKey, Date, DateTime, Numeric, Enum
 )
 from sqlalchemy.orm import relationship
 from app.models.base import Base, TimestampMixin
+from app.core.encryption import EncryptedJSON
 
 
 class EmployeeStatus(str, enum.Enum):
@@ -84,9 +85,10 @@ class Employee(Base, TimestampMixin):
     bank_name        = Column(String(100), nullable=True)
 
     #Face Recognition
-    face_embedding   = Column(JSON, nullable=True)
-                       # List of floats from DeepFace — NOT the actual photo
-                       # Example: [0.023, -0.145, 0.887, ...]
+    face_embedding   = Column(EncryptedJSON, nullable=True)
+                       # List of floats from DeepFace — NOT the actual photo.
+                       # Stored AES-256-GCM encrypted; key = BIOMETRIC_ENCRYPTION_KEY.
+                       # Example (plaintext): [0.023, -0.145, 0.887, ...]
     face_registered  = Column(Boolean, default=False, nullable=False)
     face_registered_at = Column(Text, nullable=True)             #datetime string
 

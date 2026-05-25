@@ -1,0 +1,39 @@
+# ── Secrets — NEVER bake into the image ──────────────────────────────────────
+.env
+firebase-credentials.json
+
+# ── Runtime data — mounted as volumes ─────────────────────────────────────────
+uploads/
+chroma_db/
+
+# ── Python build artefacts ────────────────────────────────────────────────────
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+
+# ── uv / pip ──────────────────────────────────────────────────────────────────
+uv.lock
+pyproject.toml
+
+# ── Development & IDE files ───────────────────────────────────────────────────
+.vscode/
+.idea/
+*.md
+*.pdf
+*.log
+
+# ── Git ───────────────────────────────────────────────────────────────────────
+.git/
+.gitignore
+
+# ── Tests ─────────────────────────────────────────────────────────────────────
+tests/
+test_*.py
+*_test.py
+
+# ── Migration scripts (run separately) ───────────────────────────────────────
+migrate_gps_columns.py
+run.py

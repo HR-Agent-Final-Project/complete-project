@@ -1,0 +1,4 @@
+{
+  "FACE_RECOGNITION_API_URL": "https://your-production-domain.com/api/attendance/clock-in-face",
+  "FACE_RECOGNITION_WEB_URL": "https://your-production-domain.com/api/attendance/clock-in-face"
+}
