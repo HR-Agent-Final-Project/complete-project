@@ -58,7 +58,7 @@ COPY app/ ./app/
 
 # Create the uploads directory; it will be bind-mounted at runtime so the
 # container process can write face images and profile photos.
-RUN mkdir -p uploads \
+RUN mkdir -p uploads .deepface \
  && chown -R appuser:appgroup /app
 
 # ── Security hardening ─────────────────────────────────────────────────────
@@ -70,7 +70,9 @@ USER appuser
 # Put the virtualenv's bin/ first so `uvicorn` resolves to the venv binary
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONDONTWRITEBYTECODE=1   \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1          \
+    DEEPFACE_HOME=/app/.deepface \
+    MPLCONFIGDIR=/tmp/matplotlib
 
 EXPOSE 8080
 
@@ -89,7 +91,10 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=90s --retries=3 \
 CMD ["uvicorn", "app.main:app", \
      "--host", "0.0.0.0", \
      "--port", "8080", \
-     "--workers", "2", \
+     "--workers", "4", \
      "--proxy-headers", \
      "--forwarded-allow-ips", "127.0.0.1", \
-     "--log-level", "info"]
+     "--log-level", "info", \
+     "--limit-concurrency", "400", \
+     "--limit-max-requests", "10000", \
+     "--backlog", "2048"]

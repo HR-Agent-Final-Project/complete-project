@@ -183,11 +183,12 @@ def _get_period_dates(period_type: str, custom_start=None, custom_end=None):
 def _generate_ai_narrative(employee_name: str, dept: str, scores: dict) -> str:
     """Generate a 3-sentence narrative using OpenAI. Falls back to template."""
     try:
-        from langchain_openai import ChatOpenAI
+        from langchain_anthropic import ChatAnthropic
         from langchain_core.messages import SystemMessage, HumanMessage
 
         from app.core.config import settings
-        llm = ChatOpenAI(model=settings.OPENAI_MODEL, temperature=0.4, api_key=settings.OPENAI_API_KEY)
+        llm = ChatAnthropic(model=settings.ANTHROPIC_MODEL, temperature=0.4,
+                            anthropic_api_key=settings.ANTHROPIC_API_KEY)
         prompt = (
             f"Employee: {employee_name}, Department: {dept}\n"
             f"Attendance: {scores['attendance_score']}% | Punctuality: {scores['punctuality_score']}% | "

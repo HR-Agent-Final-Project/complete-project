@@ -39,7 +39,7 @@ from typing import Dict, Any, Literal
 from datetime import date, datetime
 
 from langchain_core.messages import SystemMessage, HumanMessage
-from langchain_openai import ChatOpenAI
+from langchain_anthropic import ChatAnthropic
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
 
@@ -58,8 +58,8 @@ from config.settings import settings
 
 
 def _llm():
-    return ChatOpenAI(model=settings.LLM_MODEL, temperature=0.0,
-                      api_key=settings.OPENAI_API_KEY)
+    return ChatAnthropic(model=settings.LLM_MODEL, temperature=0.0,
+                         anthropic_api_key=settings.ANTHROPIC_API_KEY)
 
 
 # ── EVALUATOR PROMPT ──────────────────────────────────────────────────────────

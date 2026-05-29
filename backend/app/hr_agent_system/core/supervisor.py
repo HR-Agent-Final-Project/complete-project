@@ -17,7 +17,7 @@ from datetime import datetime
 from typing import Dict, Any
 
 from langchain_core.messages import SystemMessage, HumanMessage
-from langchain_openai import ChatOpenAI
+from langchain_anthropic import ChatAnthropic
 
 from core.state import HRSystemState
 from models.schemas import IntentClassification
@@ -26,11 +26,11 @@ from config.settings import settings
 
 # ── LLM ───────────────────────────────────────────────────────────────────────
 
-def get_llm(temperature: float = 0.0) -> ChatOpenAI:
-    return ChatOpenAI(
+def get_llm(temperature: float = 0.0) -> ChatAnthropic:
+    return ChatAnthropic(
         model=settings.LLM_MODEL,
         temperature=temperature,
-        api_key=settings.OPENAI_API_KEY,
+        anthropic_api_key=settings.ANTHROPIC_API_KEY,
     )
 
 

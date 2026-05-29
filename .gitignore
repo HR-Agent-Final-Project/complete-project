@@ -1,0 +1,48 @@
+# ── Secrets — NEVER commit real credentials ───────────────────────────────────
+.env
+backend/.env
+hr-frontend/.env
+face-recognition/.env
+**/.env
+
+# Keep example files
+!.env.example
+!**/.env.example
+
+# Firebase credentials
+firebase-credentials.json
+**/firebase-credentials.json
+
+# Python
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+**/.venv/
+*.egg-info/
+
+# Node
+node_modules/
+**/node_modules/
+hr-frontend/build/
+
+# Docker volumes / runtime data
+uploads/
+chroma_db/
+**/uploads/
+**/chroma_db/
+redis_data/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log

@@ -13,7 +13,7 @@ from typing import Dict, Any
 from datetime import datetime
 
 from langchain_core.messages import SystemMessage, HumanMessage
-from langchain_openai import ChatOpenAI
+from langchain_anthropic import ChatAnthropic
 from langgraph.graph import StateGraph, END
 
 from core.state import HRSystemState
@@ -24,7 +24,8 @@ from config.settings import settings
 
 
 def _llm(temp=0.3):
-    return ChatOpenAI(model=settings.LLM_MODEL, temperature=temp, api_key=settings.OPENAI_API_KEY)
+    return ChatAnthropic(model=settings.LLM_MODEL, temperature=temp,
+                         anthropic_api_key=settings.ANTHROPIC_API_KEY)
 
 
 def node_load_requirements(state: HRSystemState) -> Dict[str, Any]:

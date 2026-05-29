@@ -765,19 +765,37 @@ def ot_report(
     use_month = month or today.month
     _, days   = monthrange(use_year, use_month)
 
-    emp_q = db.query(Employee).filter(Employee.is_active == True)
+    from sqlalchemy.orm import joinedload
+    from collections import defaultdict
+
+    start_date = date(use_year, use_month, 1)
+    end_date   = date(use_year, use_month, days)
+
+    # Single query: all employees with their department pre-loaded
+    emp_q = db.query(Employee).options(joinedload(Employee.department)).filter(Employee.is_active == True)
     if department_id:
         emp_q = emp_q.filter(Employee.department_id == department_id)
+    employees = emp_q.all()
+    emp_ids = [e.id for e in employees]
+
+    # Single query: all attendance records for ALL employees in the period
+    all_recs = db.query(Attendance).filter(
+        Attendance.employee_id.in_(emp_ids),
+        Attendance.work_date >= start_date,
+        Attendance.work_date <= end_date,
+        Attendance.clock_in  != None,
+    ).all() if emp_ids else []
+
+    # Group records by employee in Python (no more N+1 loop)
+    emp_recs: dict = defaultdict(list)
+    for r in all_recs:
+        emp_recs[r.employee_id].append(r)
 
     report = []
-    for emp in emp_q.all():
-        recs = db.query(Attendance).filter(
-            Attendance.employee_id == emp.id,
-            Attendance.work_date   >= date(use_year, use_month, 1),
-            Attendance.work_date   <= date(use_year, use_month, days),
-            Attendance.clock_in    != None,
-        ).all()
-        if not recs: continue
+    for emp in employees:
+        recs = emp_recs[emp.id]
+        if not recs:
+            continue
 
         wkd_ot = round(sum(r.overtime_hours or 0 for r in recs if get_day_type(r.work_date) == "weekday"), 2)
         sat_ot = round(sum(r.overtime_hours or 0 for r in recs if get_day_type(r.work_date) == "saturday"), 2)

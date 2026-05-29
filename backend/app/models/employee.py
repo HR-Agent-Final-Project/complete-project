@@ -13,7 +13,7 @@ Fields explained:
 import enum
 from sqlalchemy import (
     Column, Integer, String, Boolean, Text,
-    ForeignKey, Date, DateTime, Numeric, Enum
+    ForeignKey, Date, DateTime, Numeric, Enum, Index
 )
 from sqlalchemy.orm import relationship
 from app.models.base import Base, TimestampMixin
@@ -117,6 +117,10 @@ class Employee(Base, TimestampMixin):
         back_populates="applicant",
         foreign_keys="JobApplication.applicant_id",
         cascade="all, delete-orphan",
+    )
+
+    __table_args__ = (
+        Index("ix_emp_active_status", "is_active", "status"),
     )
 
     def __repr__(self):

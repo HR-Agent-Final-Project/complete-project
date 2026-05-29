@@ -13,7 +13,7 @@ from typing import Dict, Any
 from datetime import datetime, date, timedelta
 
 from langchain_core.messages import SystemMessage, HumanMessage
-from langchain_openai import ChatOpenAI
+from langchain_anthropic import ChatAnthropic
 from langgraph.graph import StateGraph, END
 
 from core.state import HRSystemState
@@ -25,7 +25,8 @@ from config.settings import settings
 
 
 def _llm():
-    return ChatOpenAI(model=settings.LLM_MODEL, temperature=0.0, api_key=settings.OPENAI_API_KEY)
+    return ChatAnthropic(model=settings.LLM_MODEL, temperature=0.0,
+                         anthropic_api_key=settings.ANTHROPIC_API_KEY)
 
 
 def node_scan_attendance_logs(state: HRSystemState) -> Dict[str, Any]:

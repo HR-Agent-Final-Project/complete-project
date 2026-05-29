@@ -13,10 +13,11 @@ from typing import List
 
 class Settings(BaseSettings):
     # ── LLM ───────────────────────────────────────────────────────────────────
-    OPENAI_API_KEY:  str = os.getenv("OPENAI_API_KEY", "sk-not-set")
-    LLM_MODEL:       str = "gpt-4o-mini"        # gpt-4o for production
-    EMBEDDING_MODEL: str = "text-embedding-3-small"
-    LLM_TEMPERATURE: float = 0.0                 # deterministic for decisions
+    OPENAI_API_KEY:   str = os.getenv("OPENAI_API_KEY", "sk-not-set")   # embeddings only
+    ANTHROPIC_API_KEY: str = os.getenv("ANTHROPIC_API_KEY", "")
+    LLM_MODEL:        str = "claude-haiku-4-5-20251001"
+    EMBEDDING_MODEL:  str = "text-embedding-3-small"
+    LLM_TEMPERATURE:  float = 0.0                # deterministic for decisions
 
     # ── Database ──────────────────────────────────────────────────────────────
     DATABASE_URL: str = os.getenv(

@@ -69,27 +69,31 @@ async def lifespan(app: FastAPI):
             current_year = _date.today().year
             employees    = db.query(Employee).filter(Employee.is_active == True).all()
             leave_types  = db.query(LeaveType).filter(LeaveType.is_active == True).all()
-            created = 0
-            for emp in employees:
-                for lt in leave_types:
-                    exists = db.query(LeaveBalance).filter(
-                        LeaveBalance.employee_id   == emp.id,
-                        LeaveBalance.leave_type_id == lt.id,
-                        LeaveBalance.year          == current_year,
-                    ).first()
-                    if not exists:
-                        db.add(LeaveBalance(
-                            employee_id    = emp.id,
-                            leave_type_id  = lt.id,
-                            year           = current_year,
-                            total_days     = lt.max_days_per_year,
-                            used_days      = 0,
-                            remaining_days = lt.max_days_per_year,
-                        ))
-                        created += 1
-            if created:
+
+            # Single query to find all existing balances for this year
+            existing = {
+                (b.employee_id, b.leave_type_id)
+                for b in db.query(LeaveBalance.employee_id, LeaveBalance.leave_type_id)
+                           .filter(LeaveBalance.year == current_year)
+                           .all()
+            }
+            new_balances = [
+                LeaveBalance(
+                    employee_id    = emp.id,
+                    leave_type_id  = lt.id,
+                    year           = current_year,
+                    total_days     = lt.max_days_per_year,
+                    used_days      = 0,
+                    remaining_days = lt.max_days_per_year,
+                )
+                for emp in employees
+                for lt in leave_types
+                if (emp.id, lt.id) not in existing
+            ]
+            if new_balances:
+                db.add_all(new_balances)
                 db.commit()
-                logger.info("✅ Created %d missing leave balance records.", created)
+                logger.info("✅ Created %d missing leave balance records.", len(new_balances))
         finally:
             db.close()
     except Exception as e:

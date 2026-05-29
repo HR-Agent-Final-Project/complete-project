@@ -71,9 +71,13 @@ class Settings(BaseSettings):
     RATE_LIMIT_PER_MINUTE: int = 60
     LOGIN_RATE_LIMIT: int = 5
 
-    # ── OpenAI
+    # ── OpenAI (embeddings + voice only — LLM replaced by Anthropic)
     OPENAI_API_KEY: Optional[str] = None
-    OPENAI_MODEL: str = "gpt-4o-mini"           # Use mini for dev (cheaper)
+    OPENAI_MODEL: str = "gpt-4o-mini"
+
+    # ── Anthropic (LLM)
+    ANTHROPIC_API_KEY: Optional[str] = None
+    ANTHROPIC_MODEL: str = "claude-haiku-4-5-20251001"
 
     # ── ChromaDB
     CHROMA_PERSIST_DIR: str = "./chroma_db"     # Local folder for vector store

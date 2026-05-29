@@ -16,7 +16,7 @@ e.g. "Request approved. Employee has 5 annual leave days remaining.
 import enum
 from sqlalchemy import (
     Column, Integer, String, Boolean, Text,
-    ForeignKey, Date, DateTime, Numeric, Enum, Float, JSON
+    ForeignKey, Date, DateTime, Numeric, Enum, Float, JSON, Index
 )
 from sqlalchemy.orm import relationship
 from app.models.base import Base, TimestampMixin
@@ -76,6 +76,10 @@ class LeaveBalance(Base, TimestampMixin):
                       # = total_days - used_days - pending_days
     carried_over    = Column(Float, default=0.0, nullable=False)
                       # Days carried over from previous year
+
+    __table_args__ = (
+        Index("ix_lb_emp_year", "employee_id", "year"),
+    )
 
     employee   = relationship("Employee", back_populates="leave_balances")
     leave_type = relationship("LeaveType", back_populates="leave_balances")
@@ -165,6 +169,11 @@ class LeaveRequest(Base, TimestampMixin):
     appeal_reason    = Column(Text, nullable=True)
     appeal_status    = Column(String(20), nullable=True)
                        # "pending", "upheld", "overturned"
+
+    __table_args__ = (
+        Index("ix_lr_emp_status", "employee_id", "status"),
+        Index("ix_lr_status",     "status"),
+    )
 
     # ── Relationships
     employee     = relationship("Employee", foreign_keys=[employee_id], back_populates="leave_requests")
