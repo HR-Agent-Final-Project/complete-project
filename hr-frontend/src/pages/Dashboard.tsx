@@ -127,7 +127,7 @@ const HRDashboard = () => {
   const navigate = useNavigate();
 
   useEffect(() => {
-    dashboardApi.hrStats().then(setStats).finally(() => setLoading(false));
+    dashboardApi.hrStats().then(setStats).catch(() => {}).finally(() => setLoading(false));
     dashboardApi.activityFeed().then(setActivityFeed).catch(() => {});
     dashboardApi.attendanceTrends().then(setAttendanceTrends).catch(() => {});
   }, []);
@@ -235,7 +235,7 @@ const ManagementDashboard = () => {
   const [topPerformers, setTopPerformers] = useState<any[]>([]);
 
   useEffect(() => {
-    dashboardApi.managementStats().then(setStats).finally(() => setLoading(false));
+    dashboardApi.managementStats().then(setStats).catch(() => {}).finally(() => setLoading(false));
     dashboardApi.departmentBreakdown().then(setDeptBreakdown).catch(() => {});
     dashboardApi.attendanceTrends().then(setAttendanceTrends).catch(() => {});
     dashboardApi.topPerformers().then(setTopPerformers).catch(() => {});

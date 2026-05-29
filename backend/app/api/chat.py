@@ -64,14 +64,14 @@ _shared_llm = None
 
 
 def _get_llm():
-    """Return a cached ChatOpenAI instance, building it on first call."""
+    """Return a cached ChatAnthropic instance, building it on first call."""
     global _shared_llm
-    if _shared_llm is None and settings.OPENAI_API_KEY:
-        from langchain_openai import ChatOpenAI
-        _shared_llm = ChatOpenAI(
-            model=settings.OPENAI_MODEL,
+    if _shared_llm is None and settings.ANTHROPIC_API_KEY:
+        from langchain_anthropic import ChatAnthropic
+        _shared_llm = ChatAnthropic(
+            model=settings.ANTHROPIC_MODEL,
             temperature=0.3,
-            api_key=settings.OPENAI_API_KEY,
+            anthropic_api_key=settings.ANTHROPIC_API_KEY,
         )
     return _shared_llm
 

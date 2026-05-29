@@ -24,7 +24,7 @@ verification_method:
 import enum
 from sqlalchemy import (
     Column, Integer, String, DateTime, Float,
-    Boolean, Text, ForeignKey, Enum, Numeric, Date
+    Boolean, Text, ForeignKey, Enum, Numeric, Date, Index
 )
 from sqlalchemy.orm import relationship
 from app.models.base import Base, TimestampMixin
@@ -114,6 +114,12 @@ class Attendance(Base, TimestampMixin):
     employee = relationship("Employee", back_populates="attendance_records")
     scans    = relationship("AttendanceScan", back_populates="attendance", cascade="all, delete-orphan",
                             order_by="AttendanceScan.scanned_at")
+
+    __table_args__ = (
+        Index("ix_att_emp_date",        "employee_id", "work_date"),
+        Index("ix_att_date_absent",     "work_date",   "is_absent"),
+        Index("ix_att_emp_date_absent", "employee_id", "work_date", "is_absent"),
+    )
 
     def __repr__(self):
         return f"<Attendance emp={self.employee_id} date={self.work_date} in={self.clock_in}>"

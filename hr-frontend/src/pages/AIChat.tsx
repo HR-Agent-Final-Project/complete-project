@@ -43,16 +43,16 @@ const DecoSquare = ({ size, color, className, rotate = 0 }: { size: number; colo
 const MarkdownContent = ({ children }: { children: string }) => (
   <ReactMarkdown
     components={{
-      p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
-      strong: ({ children }) => <strong className="font-bold text-neo-black">{children}</strong>,
-      em: ({ children }) => <em className="italic">{children}</em>,
-      ul: ({ children }) => <ul className="list-disc list-inside mb-2 space-y-1">{children}</ul>,
-      ol: ({ children }) => <ol className="list-decimal list-inside mb-2 space-y-1">{children}</ol>,
-      li: ({ children }) => <li className="ml-2">{children}</li>,
-      code: ({ children }) => <code className="bg-neo-bg border border-neo-black/20 px-1 py-0.5 text-[11px] rounded">{children}</code>,
-      h1: ({ children }) => <h1 className="font-display font-bold text-base mb-1">{children}</h1>,
-      h2: ({ children }) => <h2 className="font-display font-bold text-sm mb-1">{children}</h2>,
-      h3: ({ children }) => <h3 className="font-display font-bold text-xs mb-1">{children}</h3>,
+      p: (props) => <p className="mb-2 last:mb-0">{props.children}</p>,
+      strong: (props) => <strong className="font-bold text-neo-black">{props.children}</strong>,
+      em: (props) => <em className="italic">{props.children}</em>,
+      ul: (props) => <ul className="list-disc list-inside mb-2 space-y-1">{props.children}</ul>,
+      ol: (props) => <ol className="list-decimal list-inside mb-2 space-y-1">{props.children}</ol>,
+      li: (props) => <li className="ml-2">{props.children}</li>,
+      code: (props) => <code className="bg-neo-bg border border-neo-black/20 px-1 py-0.5 text-[11px] rounded">{props.children}</code>,
+      h1: (props) => <h1 className="font-display font-bold text-base mb-1">{props.children}</h1>,
+      h2: (props) => <h2 className="font-display font-bold text-sm mb-1">{props.children}</h2>,
+      h3: (props) => <h3 className="font-display font-bold text-xs mb-1">{props.children}</h3>,
     }}
   >
     {children}

@@ -33,6 +33,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.config import settings
 from app.core.security import get_current_employee, require_role
+from app.core.cache import cache_get, cache_set
 from app.models.employee import Employee
 from app.models.attendance import Attendance
 from app.models.leave import LeaveRequest, LeaveBalance, LeaveType, LeaveStatus
@@ -88,57 +89,60 @@ def dashboard(
     HR Staff+ only.
     """
     today = date.today()
+    cache_key = f"rpt:dashboard:{today}"
+    cached = cache_get(cache_key)
+    if cached:
+        return cached
 
     # Headcount
     total_active = db.query(func.count(Employee.id)).filter(
         Employee.is_active == True
     ).scalar() or 0
 
-    # Today's attendance
-    clocked_in_today = db.query(func.count(Attendance.id)).filter(
-        Attendance.work_date == today,
-        Attendance.clock_in  != None,
+    # Today's attendance — single query with conditional counts
+    from sqlalchemy import case as sa_case
+    today_att = db.query(
+        func.count().label("clocked_in"),
+        func.count(sa_case((and_(Attendance.clock_in != None, Attendance.is_absent == False), 1))).label("present"),
+        func.count(sa_case((Attendance.is_late == True, 1))).label("late"),
+    ).filter(Attendance.work_date == today).one()
+    clocked_in_today = today_att.present
+    late_today       = today_att.late
+
+    # This month attendance rate — use COUNT not .all()
+    start_m, end_m = _parse_period(None)
+    wdays   = _working_days(start_m, min(today, end_m))
+    present_m = db.query(func.count(Attendance.id)).filter(
+        Attendance.work_date >= start_m,
+        Attendance.work_date <= today,
         Attendance.is_absent == False,
     ).scalar() or 0
+    att_rate = round(present_m / max(1, total_active * wdays) * 100, 1) if wdays > 0 else 0.0
 
-    late_today = db.query(func.count(Attendance.id)).filter(
-        Attendance.work_date == today,
-        Attendance.is_late   == True,
-    ).scalar() or 0
-
-    # This month attendance rate
-    start_m, end_m = _parse_period(None)
-    wdays = _working_days(start_m, min(today, end_m))
-    att_records_m = db.query(Attendance).filter(
+    # OT + flagged in one pass over attendance — two aggregates, one query
+    att_aggs = db.query(
+        func.coalesce(func.sum(Attendance.overtime_hours), 0).label("ot"),
+        func.count(sa_case((and_(Attendance.flagged == True, Attendance.flag_reason != None), 1))).label("flagged"),
+    ).filter(
         Attendance.work_date >= start_m,
         Attendance.work_date <= today,
-    ).all()
-    present_m = sum(1 for r in att_records_m if not r.is_absent)
-    att_rate  = round(present_m / max(1, total_active * wdays) * 100, 1) if wdays > 0 else 0.0
+    ).one()
+    ot_month    = float(att_aggs.ot)
+    flagged_att = att_aggs.flagged
 
-    # Pending leaves
-    pending_leaves = db.query(func.count(LeaveRequest.id)).filter(
-        LeaveRequest.status.in_(["pending", "escalated"])
-    ).scalar() or 0
-
-    # Flagged attendance records (unresolved)
-    flagged_att = db.query(func.count(Attendance.id)).filter(
-        Attendance.flagged   == True,
-        Attendance.flag_reason != None,
-    ).scalar() or 0
-
-    # OT hours this month
-    ot_month = db.query(func.sum(Attendance.overtime_hours)).filter(
-        Attendance.work_date >= start_m,
-        Attendance.work_date <= today,
-    ).scalar() or 0.0
-
-    # On leave today
-    on_leave_today = db.query(func.count(LeaveRequest.id)).filter(
-        LeaveRequest.start_date <= today,
-        LeaveRequest.end_date   >= today,
-        LeaveRequest.status     == "approved",
-    ).scalar() or 0
+    # Pending leaves + on-leave-today in one query
+    leave_aggs = db.query(
+        func.count(sa_case((LeaveRequest.status.in_(["pending", "escalated"]), 1))).label("pending"),
+        func.count(sa_case((
+            and_(
+                LeaveRequest.start_date <= today,
+                LeaveRequest.end_date   >= today,
+                LeaveRequest.status     == "approved",
+            ), 1
+        ))).label("on_leave"),
+    ).one()
+    pending_leaves = leave_aggs.pending
+    on_leave_today = leave_aggs.on_leave
 
     # Performance reviews (current quarter)
     q_start = date(today.year, ((today.month - 1) // 3) * 3 + 1, 1)
@@ -146,7 +150,7 @@ def dashboard(
         PerformanceReview.period_start >= q_start,
     ).scalar() or 0
 
-    return {
+    result = {
         "date": str(today),
         "headcount": {
             "total_active":   total_active,
@@ -171,6 +175,8 @@ def dashboard(
             "reviews_this_quarter": reviews_this_quarter,
         },
     }
+    cache_set(cache_key, result, ttl=30)
+    return result
 
 
 # ── 2. Attendance Summary ─────────────────────────────────────────────────────
@@ -793,11 +799,11 @@ def _generate_narrative(period: str, rtype: str, kpis: dict, trends: list) -> st
             f"Key observations: {'; '.join(trends)}"
         )
     try:
-        from langchain_openai import ChatOpenAI
+        from langchain_anthropic import ChatAnthropic
         from langchain_core.messages import SystemMessage, HumanMessage
 
-        llm = ChatOpenAI(model=settings.OPENAI_MODEL, temperature=0.3,
-                         api_key=settings.OPENAI_API_KEY)
+        llm = ChatAnthropic(model=settings.ANTHROPIC_MODEL, temperature=0.3,
+                            anthropic_api_key=settings.ANTHROPIC_API_KEY)
         response = llm.invoke([
             SystemMessage(content=(
                 "You are an HR analyst writing executive reports for a company in Sri Lanka. "

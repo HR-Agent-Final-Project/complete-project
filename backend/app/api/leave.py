@@ -43,6 +43,40 @@ from app.schemas.leave import (
 
 router = APIRouter()
 
+# ── Module-level singletons (created once per worker, reused on every request) ─
+_leave_llm        = None
+_leave_embeddings = None
+_leave_vectordb   = None
+
+
+def _get_leave_llm():
+    global _leave_llm
+    if _leave_llm is None:
+        from langchain_anthropic import ChatAnthropic
+        from app.hr_agent_system.config.settings import settings as agent_settings
+        _leave_llm = ChatAnthropic(
+            model=agent_settings.ANTHROPIC_MODEL,
+            temperature=0,
+            anthropic_api_key=agent_settings.ANTHROPIC_API_KEY,
+        )
+    return _leave_llm
+
+
+def _get_leave_rag():
+    global _leave_embeddings, _leave_vectordb
+    if _leave_vectordb is None:
+        try:
+            from langchain_openai import OpenAIEmbeddings
+            from langchain_community.vectorstores import Chroma
+            _leave_embeddings = OpenAIEmbeddings()
+            _leave_vectordb   = Chroma(
+                persist_directory="chroma_db",
+                embedding_function=_leave_embeddings,
+            )
+        except Exception:
+            pass
+    return _leave_vectordb
+
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -393,16 +427,15 @@ def _run_ai_review(db: Session, leave_request, employee, leave_type) -> dict:
 def _check_policy_rag(leave_type_code: str, days: float) -> str:
     """RAG policy check — falls back to built-in rules if RAG unavailable."""
     try:
-        from langchain_community.vectorstores import Chroma
-        from langchain_openai import OpenAIEmbeddings, ChatOpenAI
         from langchain.chains import RetrievalQA
 
-        embeddings = OpenAIEmbeddings()
-        vectordb   = Chroma(persist_directory="chroma_db", embedding_function=embeddings)
-        retriever  = vectordb.as_retriever(search_kwargs={"k": 3})
-        llm        = ChatOpenAI(model="gpt-4o-mini", temperature=0)
-        qa_chain   = RetrievalQA.from_chain_type(llm=llm, retriever=retriever)
-        result     = qa_chain.invoke({"query": f"Policy for {leave_type_code} leave for {days} days?"})
+        vectordb = _get_leave_rag()
+        if vectordb is None:
+            raise ValueError("vectordb unavailable")
+        retriever = vectordb.as_retriever(search_kwargs={"k": 3})
+        llm       = _get_leave_llm()
+        qa_chain  = RetrievalQA.from_chain_type(llm=llm, retriever=retriever)
+        result    = qa_chain.invoke({"query": f"Policy for {leave_type_code} leave for {days} days?"})
         return result.get("result", "Policy check completed.")
 
     except Exception:
@@ -714,14 +747,13 @@ def leave_chat(
     ])
 
     try:
-        from langchain_community.vectorstores import Chroma
-        from langchain_openai import OpenAIEmbeddings, ChatOpenAI
         from langchain.prompts import PromptTemplate
         from langchain.chains import RetrievalQA
 
-        embeddings = OpenAIEmbeddings()
-        vectordb   = Chroma(persist_directory="chroma_db", embedding_function=embeddings)
-        retriever  = vectordb.as_retriever(search_kwargs={"k": 4})
+        vectordb  = _get_leave_rag()
+        if vectordb is None:
+            raise ValueError("vectordb unavailable")
+        retriever = vectordb.as_retriever(search_kwargs={"k": 4})
 
         prompt_template = """
 You are a friendly HR assistant for a company in Sri Lanka.
@@ -744,7 +776,7 @@ Provide a helpful, accurate answer. Reference actual balance numbers when releva
             template        = prompt_template,
             input_variables = ["context", "question", "employee_name", "department", "balance_context"],
         )
-        llm      = ChatOpenAI(model="gpt-4o-mini", temperature=0.3)
+        llm      = _get_leave_llm()
         qa_chain = RetrievalQA.from_chain_type(
             llm               = llm,
             retriever         = retriever,

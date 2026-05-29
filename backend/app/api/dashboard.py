@@ -9,10 +9,11 @@ GET /api/dashboard/management  ← Company-level overview (Management+)
 from datetime import date, timedelta
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, case
 
 from app.core.database import get_db
 from app.core.security import get_current_employee, require_role
+from app.core.cache import cache_get, cache_set
 from app.models.employee import Employee, EmployeeStatus
 from app.models.leave import LeaveRequest, LeaveBalance
 from app.models.attendance import Attendance
@@ -27,6 +28,11 @@ def employee_dashboard(
     current: Employee = Depends(get_current_employee),
     db: Session = Depends(get_db),
 ):
+    cache_key = f"dash:emp:{current.id}:{date.today()}"
+    cached = cache_get(cache_key)
+    if cached:
+        return cached
+
     # Leave balance — sum remaining days across all leave types
     leave_balance = db.query(func.coalesce(func.sum(LeaveBalance.remaining_days), 0)).filter(
         LeaveBalance.employee_id == current.id
@@ -60,12 +66,14 @@ def employee_dashboard(
             payday = date(today.year, today.month + 1, 25)
     next_payday = payday.isoformat()
 
-    return {
+    result = {
         "leave_balance": float(leave_balance),
         "attendance_rate": attendance_rate,
         "pending_requests": pending_requests,
         "next_payday": next_payday,
     }
+    cache_set(cache_key, result, ttl=60)
+    return result
 
 
 @router.get("/hr")
@@ -73,6 +81,11 @@ def hr_dashboard(
     current: Employee = Depends(require_role(2)),
     db: Session = Depends(get_db),
 ):
+    cache_key = f"dash:hr:{date.today()}"
+    cached = cache_get(cache_key)
+    if cached:
+        return cached
+
     # Total active employees
     total_employees = db.query(Employee).filter(
         Employee.is_active == True,
@@ -96,12 +109,14 @@ def hr_dashboard(
         JobPosting.is_active == True
     ).count()
 
-    return {
+    result = {
         "total_employees": total_employees,
         "today_present": today_present,
         "pending_leaves": pending_leaves,
         "open_positions": open_positions,
     }
+    cache_set(cache_key, result, ttl=30)
+    return result
 
 
 @router.get("/management")
@@ -109,39 +124,48 @@ def management_dashboard(
     current: Employee = Depends(require_role(3)),
     db: Session = Depends(get_db),
 ):
+    cache_key = f"dash:mgmt:{date.today()}"
+    cached = cache_get(cache_key)
+    if cached:
+        return cached
+
     # Headcount
     headcount = db.query(Employee).filter(
         Employee.is_active == True,
         Employee.status == EmployeeStatus.ACTIVE,
     ).count()
 
-    # Attendance rate last 30 days
+    # Attendance rate last 30 days — single query with conditional count
     today = date.today()
     thirty_days_ago = today - timedelta(days=30)
-    total_records = db.query(Attendance).filter(
+    att = db.query(
+        func.count().label("total"),
+        func.count(case((Attendance.is_absent == False, 1))).label("present"),
+    ).filter(
         Attendance.work_date >= thirty_days_ago,
         Attendance.work_date <= today,
-    ).count()
-    present_records = db.query(Attendance).filter(
-        Attendance.work_date >= thirty_days_ago,
-        Attendance.work_date <= today,
-        Attendance.is_absent == False,
-    ).count()
-    attendance_rate = round((present_records / total_records) * 100) if total_records > 0 else 0
+    ).one()
+    attendance_rate = round((att.present / att.total) * 100) if att.total > 0 else 0
 
-    # Leave utilization — % of leave days used vs total entitlement
-    total_entitled = db.query(func.coalesce(func.sum(LeaveBalance.total_days), 0)).scalar() or 0
-    total_remaining = db.query(func.coalesce(func.sum(LeaveBalance.remaining_days), 0)).scalar() or 0
-    used = float(total_entitled) - float(total_remaining)
+    # Leave utilization — single aggregation query
+    bal = db.query(
+        func.coalesce(func.sum(LeaveBalance.total_days), 0).label("total"),
+        func.coalesce(func.sum(LeaveBalance.remaining_days), 0).label("remaining"),
+    ).one()
+    total_entitled  = float(bal.total)
+    total_remaining = float(bal.remaining)
+    used = total_entitled - total_remaining
     leave_utilization = round((used / float(total_entitled)) * 100) if total_entitled > 0 else 0
 
     # Average performance score
     avg_score = db.query(func.avg(PerformanceReview.overall_score)).scalar()
     avg_performance_score = round(float(avg_score)) if avg_score else 0
 
-    return {
+    result = {
         "headcount": headcount,
         "attendance_rate": attendance_rate,
         "leave_utilization": leave_utilization,
         "avg_performance_score": avg_performance_score,
     }
+    cache_set(cache_key, result, ttl=30)
+    return result

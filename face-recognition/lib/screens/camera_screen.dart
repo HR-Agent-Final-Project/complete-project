@@ -8,7 +8,6 @@ import 'package:http/http.dart' as http;
 import 'package:geolocator/geolocator.dart';
 import '../config/app_config.dart';
 
-// ─── Neobrutalism design tokens ────────────────────────────────────────────
 const _kYellow = Color(0xFFFFEE32);
 const _kTeal = Color(0xFF4ECDC4);
 const _kCoral = Color(0xFFFF6B6B);
@@ -16,8 +15,6 @@ const _kCream = Color(0xFFFFFBF0);
 const _kBorder = BorderSide(color: Colors.black, width: 3);
 const _kShadow = BoxShadow(color: Colors.black, offset: Offset(5, 5), blurRadius: 0);
 const _kShadowSm = BoxShadow(color: Colors.black, offset: Offset(4, 4), blurRadius: 0);
-
-// ─── Reusable widgets ───────────────────────────────────────────────────────
 
 class _NeoButton extends StatelessWidget {
   final String label;
@@ -146,8 +143,6 @@ class _NeoDialog extends StatelessWidget {
     );
   }
 }
-
-// ─── Main screen ────────────────────────────────────────────────────────────
 
 class CameraScreen extends StatefulWidget {
   final CameraDescription camera;
@@ -361,8 +356,6 @@ class _CameraScreenState extends State<CameraScreen> {
       _showRetryDialog('ERROR', message.isNotEmpty ? message : 'Unexpected response from server.');
     }
   }
-
-  // ─── Dialog builders ───────────────────────────────────────────────────
 
   Widget _buildScanningDialog() {
     return Dialog(
@@ -671,7 +664,6 @@ class _CameraScreenState extends State<CameraScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
-      // ── Neo AppBar ──────────────────────────────────────────────────────
       appBar: PreferredSize(
         preferredSize: const Size.fromHeight(56),
         child: Container(
@@ -711,7 +703,6 @@ class _CameraScreenState extends State<CameraScreen> {
         ),
       ),
 
-      // ── Camera body ─────────────────────────────────────────────────────
       body: FutureBuilder<void>(
         future: _initializeControllerFuture,
         builder: (context, snapshot) {
@@ -722,13 +713,11 @@ class _CameraScreenState extends State<CameraScreen> {
                 // Camera preview fills screen
                 CameraPreview(_controller),
 
-                // ── Dark overlay with oval face cutout ─────────────────
                 CustomPaint(
                   painter: _FaceOvalOverlayPainter(),
                   child: const SizedBox.expand(),
                 ),
 
-                // ── Animated oval border around face area ──────────────
                 Center(
                   child: Transform.translate(
                     offset: const Offset(0, -30),
@@ -742,7 +731,6 @@ class _CameraScreenState extends State<CameraScreen> {
                   ),
                 ),
 
-                // ── Bottom instruction card ────────────────────────────
                 Positioned(
                   bottom: 28,
                   left: 24,
@@ -778,7 +766,6 @@ class _CameraScreenState extends State<CameraScreen> {
                   ),
                 ),
 
-                // ── Top-left status badge ──────────────────────────────
                 Positioned(
                   top: 16,
                   left: 20,
@@ -850,8 +837,6 @@ class _CameraScreenState extends State<CameraScreen> {
   }
 }
 
-// ─── Decorative background balls ─────────────────────────────────────────────
-// ─── Face oval overlay — dark outside, transparent inside ────────────────────
 class _FaceOvalOverlayPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
@@ -882,7 +867,6 @@ class _FaceOvalOverlayPainter extends CustomPainter {
   bool shouldRepaint(_FaceOvalOverlayPainter old) => false;
 }
 
-// ─── Glowing oval border around face ─────────────────────────────────────────
 class _FaceOvalBorderPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
@@ -974,18 +958,12 @@ class _NeoBalls extends StatelessWidget {
   }
 }
 
-// ─── Corner accent mark ──────────────────────────────────────────────────────
+
 class _CornerAccent extends StatelessWidget {
-  final bool topLeft;
   final bool topRight;
-  final bool bottomLeft;
-  final bool bottomRight;
 
   const _CornerAccent({
-    this.topLeft = false,
     this.topRight = false,
-    this.bottomLeft = false,
-    this.bottomRight = false,
   });
 
   @override
@@ -1001,10 +979,7 @@ class _CornerAccent extends StatelessWidget {
         painter: _CornerPainter(
           color: c,
           thickness: t,
-          topLeft: topLeft,
           topRight: topRight,
-          bottomLeft: bottomLeft,
-          bottomRight: bottomRight,
         ),
       ),
     );
@@ -1014,15 +989,12 @@ class _CornerAccent extends StatelessWidget {
 class _CornerPainter extends CustomPainter {
   final Color color;
   final double thickness;
-  final bool topLeft, topRight, bottomLeft, bottomRight;
+  final bool topRight;
 
   _CornerPainter({
     required this.color,
     required this.thickness,
-    this.topLeft = false,
     this.topRight = false,
-    this.bottomLeft = false,
-    this.bottomRight = false,
   });
 
   @override
@@ -1035,29 +1007,15 @@ class _CornerPainter extends CustomPainter {
 
     const len = 20.0;
 
-    if (topLeft) {
-      canvas.drawLine(const Offset(0, 0), const Offset(len, 0), paint);
-      canvas.drawLine(const Offset(0, 0), const Offset(0, len), paint);
-    }
     if (topRight) {
       canvas.drawLine(Offset(size.width, 0), Offset(size.width - len, 0), paint);
       canvas.drawLine(Offset(size.width, 0), Offset(size.width, len), paint);
-    }
-    if (bottomLeft) {
-      canvas.drawLine(Offset(0, size.height), Offset(len, size.height), paint);
-      canvas.drawLine(Offset(0, size.height), Offset(0, size.height - len), paint);
-    }
-    if (bottomRight) {
-      canvas.drawLine(Offset(size.width, size.height), Offset(size.width - len, size.height), paint);
-      canvas.drawLine(Offset(size.width, size.height), Offset(size.width, size.height - len), paint);
     }
   }
 
   @override
   bool shouldRepaint(_CornerPainter old) => false;
 }
-
-// ─── Live clock widget ───────────────────────────────────────────────────────
 class _StreamClock extends StatefulWidget {
   @override
   State<_StreamClock> createState() => _StreamClockState();

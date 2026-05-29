@@ -20,7 +20,7 @@ from typing import Dict, Any
 from datetime import datetime
 
 from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_openai import ChatOpenAI
+from langchain_anthropic import ChatAnthropic
 from langgraph.prebuilt import create_react_agent
 from langgraph.graph import StateGraph, END
 
@@ -58,8 +58,8 @@ You can answer questions like:
 
 def build_hr_chat_agent():
     """Builds the ReAct chat agent. Called once, reused."""
-    llm   = ChatOpenAI(model=settings.LLM_MODEL, temperature=0.3,
-                       api_key=settings.OPENAI_API_KEY)
+    llm   = ChatAnthropic(model=settings.LLM_MODEL, temperature=0.3,
+                          anthropic_api_key=settings.ANTHROPIC_API_KEY)
     tools = [
         search_hr_policy,
         search_company_culture,
